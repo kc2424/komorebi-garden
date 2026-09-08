@@ -80,3 +80,12 @@ npm run verify:api   # api/health・api/identify の依存のみ NodeNext で型
 - 認証・DB・追加バックエンドはなし
 
 詳細は [plantnet-setup.md](./plantnet-setup.md) と [mvp-3d-brief.md](./mvp-3d-brief.md)。
+# 公開記録 — 2026-09-08
+
+- 本番URL: https://komorebi-garden.vercel.app/
+- Vercel: kc2425 / komorebi-garden。GitHub kc2424/komorebi-garden のmainに接続。
+- PLANTNET_API_KEYはProduction/PreviewのSecretとして登録。値はコード・文書に保存しない。
+- 検証済みコード: b827ac1。本番deployment dpl_8R4PxZList2pjjpWZsbbLmQtPJKq がReady。
+- 公開URLのhealth HTTP200とキー設定済みを確認。390×844の隔離ブラウザで実チューリップ写真をファイル入力から送信し、実API候補→確認→観察保存→植栽→再読込を確認。観察1件、植栽1本、識別元plantnetが保持された。
+- NodeNextチェック、テスト25件、build成功。初回のNode ESM importエラーは.js指定で修正済み。
+- 実端末のカメラ操作はユーザー確認待ち。保存はブラウザ内で、localhostと本番、Macとスマホは別の庭になる。ユーザーの最終3Dモデルは未受領。
