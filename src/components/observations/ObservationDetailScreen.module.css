@@ -1,0 +1,92 @@
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 1rem 1rem;
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+  gap: 1rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 0 0.5rem;
+}
+
+.backBtn {
+  font-size: 0.875rem;
+  color: var(--color-green-mid);
+  padding: 0.5rem;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-green-deep);
+}
+
+.photoSection {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  background: var(--color-bg-warm);
+}
+
+.photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stats {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.stat dt {
+  color: var(--color-text-muted);
+}
+
+.stat dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+.memoSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.memoInput {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  resize: vertical;
+}
+
+.savedNote {
+  font-size: 0.8125rem;
+  color: var(--color-green-mid);
+  margin: 0;
+}

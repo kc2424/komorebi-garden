@@ -1,0 +1,85 @@
+.screen {
+  flex: 1;
+  padding: 0 1rem 1rem;
+  padding-bottom: calc(1rem + var(--safe-bottom));
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 0 0.5rem;
+}
+
+.backBtn {
+  font-size: 0.875rem;
+  color: var(--color-green-mid);
+  padding: 0.5rem;
+  min-height: var(--tap-min);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-green-deep);
+  outline: none;
+}
+
+.intro {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.item {
+  padding: 0.875rem 1rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.plantName {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-green-deep);
+}
+
+.meta {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.meta div {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.meta dt {
+  color: var(--color-text-muted);
+  min-width: 4rem;
+}
+
+.meta dd {
+  margin: 0;
+  flex: 1;
+}
+
+.sourceLink {
+  font-size: 0.8125rem;
+}

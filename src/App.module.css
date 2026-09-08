@@ -1,0 +1,30 @@
+.app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--color-bg);
+}
+
+@media (min-width: 768px) {
+  .app {
+    background: linear-gradient(160deg, #e8ebe4 0%, #d8e0d4 50%, #e0dcd0 100%);
+  }
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+}
+
+.errorBar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 0.5rem 1rem;
+  background: var(--color-error-bg);
+}

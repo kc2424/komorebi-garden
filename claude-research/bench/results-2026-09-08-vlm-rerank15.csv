@@ -1,0 +1,16 @@
+id,truth,pn,pn_sc,vlm,conf,pn_sp,pn_g,v_sp,v_g,changed
+C01,Lycoris radiata,Lapiedra martinezii,0.2129,Lycoris radiata,medium,False,False,True,True,True
+C02,Quercus serrata,Quercus serrata,0.15392,Quercus serrata,low,True,True,True,True,False
+C03,Lamium amplexicaule,Lamium amplexicaule,0.96876,Lamium amplexicaule,high,True,True,True,True,False
+C04,Vicia sativa,Vicia sativa,0.74352,Vicia sativa,high,True,True,True,True,False
+C05,Veronica persica,Veronica polita,0.53815,Veronica persica,medium,False,True,True,True,True
+C06,Nandina domestica,Nandina domestica,0.82216,Nandina domestica,high,True,True,True,True,False
+C07,Cinnamomum chekiangense,Cinnamomum chekiangense,0.55473,Cinnamomum chekiangense,low,True,True,True,True,False
+C08,Senecio vulgaris,Senecio vulgaris,0.54895,Senecio vulgaris,high,True,True,True,True,False
+C09,Crepidiastrum lanceolatum,Crepidiastrum lanceolatum,0.95121,Crepidiastrum lanceolatum,medium,True,True,True,True,False
+C10,Vicia tetrasperma,Vicia ludoviciana,0.08181,(候補になし・Vicia属),low,False,True,False,False,True
+C11,Strobilanthes flexicaulis,Strobilanthes rankanensis,0.576,Strobilanthes rankanensis,low,False,True,False,True,False
+C12,Ixeris japonica,Ixeris japonica,0.53931,Ixeris japonica,medium,True,True,True,True,False
+C13,Garcinia subelliptica,Garcinia subelliptica,0.83175,Garcinia subelliptica,high,True,True,True,True,False
+C14,Distylium racemosum,Distylium racemosum,0.53188,Distylium racemosum,medium,True,True,True,True,False
+C15,Fatsia japonica,Fatsia japonica,0.86692,Fatsia japonica,high,True,True,True,True,False
