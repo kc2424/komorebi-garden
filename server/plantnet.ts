@@ -1,16 +1,16 @@
-import type { IdentificationCandidate, IdentificationResult } from '../src/types';
-import { PROVIDER_TIMEOUT_MS } from './constants';
+import type { IdentificationCandidate, IdentificationResult } from '../src/types/index.js';
+import { PROVIDER_TIMEOUT_MS } from './constants.js';
 import {
   manualCandidates,
   TULIP_TRAIT,
-} from '../src/data/identificationCandidates';
+} from '../src/data/identificationCandidates.js';
 import {
   isTulipaScientificName,
   TULIP_COMMON_NAME,
   TULIP_FAMILY,
   TULIP_SCIENTIFIC_NAME,
-} from '../src/data/tulip';
-import { pickJapaneseDisplayName } from '../src/utils/japaneseName';
+} from '../src/data/tulip.js';
+import { pickJapaneseDisplayName } from '../src/utils/japaneseName.js';
 
 export interface PlantNetSpeciesResult {
   score: number;

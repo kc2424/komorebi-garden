@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { healthHandler, identifyHandler } from './handlers';
-import { readBodyStream, readJsonBody } from './request';
+import { healthHandler, identifyHandler } from './handlers.js';
+import { readBodyStream, readJsonBody } from './request.js';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;

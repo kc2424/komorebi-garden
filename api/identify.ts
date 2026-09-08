@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { identifyHandler } from '../server/handlers';
-import { getVercelBody } from '../server/request';
+import { identifyHandler } from '../server/handlers.js';
+import { getVercelBody } from '../server/request.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== 'POST') {

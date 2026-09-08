@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "api/**/*.ts",
+    "server/**/*.ts",
+    "src/types/index.ts",
+    "src/data/tulip.ts",
+    "src/data/identificationCandidates.ts",
+    "src/utils/japaneseName.ts"
+  ]
+}

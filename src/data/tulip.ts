@@ -1,4 +1,4 @@
-import type { TulipColor } from '../types';
+import type { TulipColor } from '../types/index.js';
 
 export const TULIP_COMMON_NAME = 'チューリップ';
 export const TULIP_SCIENTIFIC_NAME = 'Tulipa gesneriana';

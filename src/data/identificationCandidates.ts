@@ -1,9 +1,9 @@
-import type { IdentificationCandidate } from '../types';
+import type { IdentificationCandidate } from '../types/index.js';
 import {
   TULIP_COMMON_NAME,
   TULIP_FAMILY,
   TULIP_SCIENTIFIC_NAME,
-} from './tulip';
+} from './tulip.js';
 
 export const TULIP_TRAIT =
   '花弁が6枚（外側3枚が大きい）。春に咲く球根植物。色は品種により赤・黄・ピンクなど。';

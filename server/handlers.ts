@@ -1,7 +1,7 @@
-import type { IdentificationResult } from '../src/types';
-import { MAX_IMAGE_BYTES } from './constants';
-import { identifyWithPlantNet, manualCandidates, notConfiguredResult } from './plantnet';
-import type { JsonBodyResult } from './request';
+import type { IdentificationResult } from '../src/types/index.js';
+import { MAX_IMAGE_BYTES } from './constants.js';
+import { identifyWithPlantNet, manualCandidates, notConfiguredResult } from './plantnet.js';
+import type { JsonBodyResult } from './request.js';
 
 interface IdentifyBody {
   imageDataUrl?: string;

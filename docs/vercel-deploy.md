@@ -61,6 +61,18 @@ Vercel 本番では `api/*.ts`、ローカルでは `vite.config.ts` のミド�
 
 `src/`、`public/`、`server/`、`api/` はデプロイに含まれます。
 
+## 7. デプロイ前チェック（ローカル）
+
+Vercel の Node 関数コンパイラは `moduleResolution: NodeNext` 相当のため、API 依存ツリーは **相対 import に `.js` 拡張子**（TS ソースへの解決）が必須です。
+
+```bash
+npm test
+npm run build
+npm run verify:api   # api/health・api/identify の依存のみ NodeNext で型チェック
+```
+
+`verify:api` が通れば、Vercel 側の TS2834/TS2835（拡張子なし import）によるビルド失敗を事前に防げます。
+
 ## 制限（現行 MVP）
 
 - 画像: デコード後 **4MB** まで
