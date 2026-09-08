@@ -33,3 +33,5 @@ coverage
 .env.*
 !.env.example
 .claude/
+.vercel
+.env*

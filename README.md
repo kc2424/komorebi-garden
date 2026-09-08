@@ -38,6 +38,10 @@ npm run preview   # ビルドのプレビュー
 
 キーなしでもサンプル写真・手動選択で全フロー体験可能。実識別はキー設定後。
 
+## Vercel デプロイ
+
+[`docs/vercel-deploy.md`](docs/vercel-deploy.md) — 環境変数・ルーティング・確認手順。
+
 ## 3Dモデル差し替え
 
 ユーザー GLB 受け渡し: [`docs/model-handoff.md`](docs/model-handoff.md)

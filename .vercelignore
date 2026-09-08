@@ -1,0 +1,31 @@
+# Secrets and local env (never upload)
+.env
+.env.*
+!.env.example
+
+# Research, planning docs, and local metadata — not needed at runtime
+claude-research/
+docs/
+企画書.md
+AGENTS.md
+.cursor/
+.claude/
+
+# Dev-only scripts and tests
+scripts/
+src/test/
+vitest.config.ts
+**/*.test.ts
+**/*.test.tsx
+
+# Git and editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Local overrides
+*.local
+
+# Build artifacts are produced on Vercel; skip local copies
+dist/

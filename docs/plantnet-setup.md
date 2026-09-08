@@ -30,7 +30,11 @@ curl -s http://127.0.0.1:5173/api/health
 
 ブラウザで写真を選び、「Pl@ntNet API による識別候補」と表示されれば接続成功。
 
-## 4. 注意
+## 4. Vercel 本番
+
+Vercel の環境変数に同じ `PLANTNET_API_KEY` を設定（サーバー関数のみ）。手順は [`docs/vercel-deploy.md`](./vercel-deploy.md)。
+
+## 5. 注意
 
 - キーをフロントエンドのソースや README に書かない
 - Free 枠は 500 回/日（公式）。開発中はサンプル写真で体験可能

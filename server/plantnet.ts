@@ -1,4 +1,5 @@
 import type { IdentificationCandidate, IdentificationResult } from '../src/types';
+import { PROVIDER_TIMEOUT_MS } from './constants';
 import {
   manualCandidates,
   TULIP_TRAIT,
@@ -92,7 +93,18 @@ export async function identifyWithPlantNet(
   formData.append('images', blob, 'plant.jpg');
   formData.append('organs', 'auto');
 
-  const response = await fetch(url, { method: 'POST', body: formData });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
+  } catch {
+    return errorResult('識別APIへの接続がタイムアウトしました。');
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const text = await response.text();
 
   if (!response.ok) {
