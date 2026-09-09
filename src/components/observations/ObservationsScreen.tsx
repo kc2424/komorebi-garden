@@ -1,15 +1,17 @@
 import type { GardenStore } from '../../hooks/useGardenStore';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
-import { TULIP_COLORS } from '../../data/tulip';
+import { Button } from '../ui/Button';
+import { ScreenFrame } from '../ui/ScreenFrame';
 import styles from './ObservationsScreen.module.css';
 
 interface ObservationsScreenProps {
   store: GardenStore;
   onBack: () => void;
+  onDiscover: () => void;
   onSelect: (observationId: string) => void;
 }
 
-export function ObservationsScreen({ store, onBack, onSelect }: ObservationsScreenProps) {
+export function ObservationsScreen({ store, onBack, onDiscover, onSelect }: ObservationsScreenProps) {
   const { state } = store;
   const titleRef = useScreenFocus(['observations']);
   const sorted = [...state.observations].sort(
@@ -19,7 +21,6 @@ export function ObservationsScreen({ store, onBack, onSelect }: ObservationsScre
   const formatDate = (iso: string) => {
     try {
       return new Date(iso).toLocaleDateString('ja-JP', {
-        year: 'numeric',
         month: 'long',
         day: 'numeric',
       });
@@ -28,15 +29,27 @@ export function ObservationsScreen({ store, onBack, onSelect }: ObservationsScre
     }
   };
 
-  return (
-    <div className={styles.screen}>
-      <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onBack} aria-label="戻る">
-          ← 戻る
-        </button>
-        <h1 className={styles.title} ref={titleRef} tabIndex={-1}>観察記録</h1>
-      </header>
+  const monthGroups: { label: string; items: typeof sorted }[] = [];
+  for (const obs of sorted) {
+    let monthLabel: string;
+    try {
+      monthLabel = new Date(obs.takenAt).toLocaleDateString('ja-JP', {
+        year: 'numeric',
+        month: 'long',
+      });
+    } catch {
+      monthLabel = '';
+    }
+    const last = monthGroups[monthGroups.length - 1];
+    if (last && last.label === monthLabel) {
+      last.items.push(obs);
+    } else {
+      monthGroups.push({ label: monthLabel, items: [obs] });
+    }
+  }
 
+  return (
+    <ScreenFrame title="記録" titleRef={titleRef} onBack={onBack} tone="journal">
       {state.legacyV1 && (
         <p className={styles.legacyNote}>
           2D体験版の記録 {state.legacyV1.observations.length}件を引き継ぎ済みです。
@@ -44,31 +57,31 @@ export function ObservationsScreen({ store, onBack, onSelect }: ObservationsScre
       )}
 
       {sorted.length === 0 ? (
-        <p className={styles.empty}>まだ観察がありません。「植物を見つけた」から始めましょう。</p>
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>まだ記録がありません。</p>
+          <Button onClick={onDiscover}>最初の花を記録する</Button>
+        </div>
       ) : (
-        <ul className={styles.list}>
-          {sorted.map((obs) => (
-            <li key={obs.id}>
-              <button type="button" className={styles.card} onClick={() => onSelect(obs.id)}>
-                <img src={obs.imageDataUrl} alt="" className={styles.thumb} />
-                <div className={styles.meta}>
-                  <span className={styles.name}>{obs.commonNameJa}</span>
-                  <span className={styles.date}>{formatDate(obs.takenAt)}</span>
-                  <span className={styles.tags}>
-                    {obs.plantType === 'tulip' ? 'チューリップ' : '観察のみ'}
-                    {obs.color && (
-                      <span className={styles.colorTag}>
-                        {TULIP_COLORS.find((c) => c.id === obs.color)?.label}
-                      </span>
+        monthGroups.map((group) => (
+          <section key={group.label} className={styles.monthSection} aria-label={group.label}>
+            <h2 className={styles.monthHeading}>{group.label}</h2>
+            <ul className={styles.grid}>
+              {group.items.map((obs) => (
+                <li key={obs.id}>
+                  <button type="button" className={styles.entry} onClick={() => onSelect(obs.id)}>
+                    <img src={obs.imageDataUrl} alt="" className={styles.thumb} />
+                    <span className={styles.name}>{obs.commonNameJa}</span>
+                    <span className={styles.date}>{formatDate(obs.takenAt)}</span>
+                    {obs.isSample && (
+                      <span className={styles.sampleLabel}>サンプル</span>
                     )}
-                    {obs.isSample && <span className={styles.sampleTag}>サンプル</span>}
-                  </span>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
       )}
-    </div>
+    </ScreenFrame>
   );
 }

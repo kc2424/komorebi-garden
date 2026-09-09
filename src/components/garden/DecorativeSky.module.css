@@ -1,0 +1,90 @@
+.sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.layers {
+  position: absolute;
+  inset: 0;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: opacity 0.6s ease;
+}
+
+.layerDusk,
+.layerNight {
+  background-position: right center;
+}
+
+.layerActive {
+  opacity: 1;
+}
+
+.layerInactive {
+  opacity: 0;
+}
+
+.lowerHaze {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 52%;
+  background: linear-gradient(
+    to top,
+    rgba(196, 186, 192, 0.42) 0%,
+    rgba(196, 186, 192, 0.12) 45%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.clouds {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(248, 246, 250, 0.72);
+  -webkit-mask-size: cover;
+  mask-size: cover;
+  -webkit-mask-position: center 18%;
+  mask-position: center 18%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
+  opacity: 0.36;
+  pointer-events: none;
+  animation: cloudDrift 100s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+.cloudsMotionRunning {
+  animation-play-state: running;
+}
+
+@keyframes cloudDrift {
+  from {
+    transform: translateX(-5%);
+  }
+  to {
+    transform: translateX(5%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layer {
+    transition: none;
+  }
+
+  .clouds {
+    animation: none;
+  }
+}

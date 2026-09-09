@@ -4,12 +4,37 @@ import { compressImage, loadImageFromUrl } from '../../storage/persistence';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
 import type { DiscoveryDraft } from '../../types';
 import { Banner } from '../ui/Banner';
-import { Button } from '../ui/Button';
+import { ScreenFrame } from '../ui/ScreenFrame';
 import styles from './DiscoverScreen.module.css';
 
 interface DiscoverScreenProps {
   onBack: () => void;
   onContinue: (draft: DiscoveryDraft) => void;
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.actionIcon}>
+      <path
+        d="M4 7h4l2-3h4l2 3h4v12H4V7z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="13" r="3.2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    </svg>
+  );
+}
+
+function LibraryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.actionIcon}>
+      <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <circle cx="9" cy="10" r="1.5" fill="currentColor" />
+      <path d="M4 16l4-4 3 3 5-6 4 5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
@@ -56,66 +81,67 @@ export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
   };
 
   return (
-    <div className={styles.screen}>
-      <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onBack} aria-label="戻る">
-          ← 戻る
+    <ScreenFrame title="花を記録" titleRef={titleRef} onBack={onBack} tone="discovery">
+      <p className={styles.intro}>今日出会った花を、庭の思い出に。</p>
+
+      <input
+        ref={cameraRef}
+        id={cameraId}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className={styles.hiddenInput}
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => handleFile(e.target.files?.[0], e.target)}
+      />
+      <input
+        ref={fileRef}
+        id={fileId}
+        type="file"
+        accept="image/*"
+        className={styles.hiddenInput}
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => handleFile(e.target.files?.[0], e.target)}
+      />
+
+      <div className={styles.sourceCards}>
+        <button
+          type="button"
+          className={styles.sourceCard}
+          onClick={() => cameraRef.current?.click()}
+          disabled={loading}
+          aria-busy={loading || undefined}
+        >
+          <span className={`${styles.sourceIconFace} ${styles.sourceIconCamera}`}>
+            <CameraIcon />
+          </span>
+          <span className={styles.sourceText}>
+            <span className={styles.sourceLabel}>カメラで撮影</span>
+            {loading && <span className={styles.sourceStatus}>処理中…</span>}
+          </span>
         </button>
-        <h1 className={styles.title} ref={titleRef} tabIndex={-1}>植物を見つけた</h1>
-      </header>
+        <button
+          type="button"
+          className={styles.sourceCard}
+          onClick={() => fileRef.current?.click()}
+          disabled={loading}
+          aria-busy={loading || undefined}
+        >
+          <span className={`${styles.sourceIconFace} ${styles.sourceIconLibrary}`}>
+            <LibraryIcon />
+          </span>
+          <span className={styles.sourceText}>
+            <span className={styles.sourceLabel}>写真を選ぶ</span>
+            {loading && <span className={styles.sourceStatus}>処理中…</span>}
+          </span>
+        </button>
+      </div>
 
-      <Banner variant="sample" message="サンプル写真は固定候補です。自分の写真は識別APIまたは手動確認になります。" />
-
-      <section className={styles.section} aria-labelledby="photo-source-heading">
-        <h2 id="photo-source-heading" className={styles.sectionTitle}>写真を選ぶ</h2>
-
-        <input
-          ref={cameraRef}
-          id={cameraId}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className={styles.hiddenInput}
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(e) => handleFile(e.target.files?.[0], e.target)}
-        />
-        <input
-          ref={fileRef}
-          id={fileId}
-          type="file"
-          accept="image/*"
-          className={styles.hiddenInput}
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(e) => handleFile(e.target.files?.[0], e.target)}
-        />
-
-        <div className={styles.sourceButtons}>
-          <Button
-            variant="primary"
-            fullWidth
-            loading={loading}
-            disabled={loading}
-            onClick={() => cameraRef.current?.click()}
-          >
-            カメラで撮影
-          </Button>
-          <Button
-            variant="secondary"
-            fullWidth
-            loading={loading}
-            disabled={loading}
-            onClick={() => fileRef.current?.click()}
-          >
-            写真を選ぶ
-          </Button>
-        </div>
-      </section>
-
-      <section className={styles.section} aria-labelledby="sample-heading">
-        <h2 id="sample-heading" className={styles.sectionTitle}>サンプル写真</h2>
-        <p className={styles.sectionHint}>端末に写真がなくても体験できます</p>
+      <section className={styles.sampleSection} aria-labelledby="sample-heading">
+        <h2 id="sample-heading" className={styles.sampleHeading}>サンプルで試す</h2>
+        <p className={styles.sampleHint}>サンプル写真・固定候補</p>
         <ul className={styles.sampleGrid}>
           {SAMPLE_PHOTOS.map((sample) => (
             <li key={sample.key}>
@@ -126,12 +152,14 @@ export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
                 disabled={loading}
                 aria-label={sample.label}
               >
-                <img
-                  src={sample.imagePath}
-                  alt=""
-                  className={styles.sampleImg}
-                  loading="lazy"
-                />
+                <div className={styles.samplePhotoFrame}>
+                  <img
+                    src={sample.imagePath}
+                    alt=""
+                    className={styles.sampleImg}
+                    loading="lazy"
+                  />
+                </div>
                 <span className={styles.sampleLabel}>{sample.label}</span>
               </button>
             </li>
@@ -139,9 +167,7 @@ export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
         </ul>
       </section>
 
-      {error && (
-        <Banner variant="error" message={error} onDismiss={() => setError(null)} />
-      )}
-    </div>
+      {error && <Banner variant="error" message={error} onDismiss={() => setError(null)} />}
+    </ScreenFrame>
   );
 }

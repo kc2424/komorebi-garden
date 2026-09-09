@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DiscoveryDraft, RegistrationResult, Screen } from './types';
 import { useGardenStore } from './hooks/useGardenStore';
 import { GardenScreen } from './components/garden/GardenScreen';
@@ -28,6 +28,11 @@ export default function App() {
   useEffect(() => {
     store.clearSaveError();
   }, [screen, store.clearSaveError]);
+
+  const savedObservation = useMemo(() => {
+    if (!registrationResult) return null;
+    return store.state.observations.find((o) => o.id === registrationResult.observationId) ?? null;
+  }, [registrationResult, store.state.observations]);
 
   const handleSaveObservation = useCallback(
     (input: {
@@ -103,14 +108,23 @@ export default function App() {
         />
       )}
 
-      {screen === 'complete' && registrationResult && (
-        <CompleteScreen result={registrationResult} onGoGarden={goGarden} />
+      {screen === 'complete' && registrationResult && savedObservation && (
+        <CompleteScreen
+          result={registrationResult}
+          observation={savedObservation}
+          onGoGarden={goGarden}
+          onViewRecord={() => {
+            setSelectedObservationId(registrationResult.observationId);
+            setScreen('observation-detail');
+          }}
+        />
       )}
 
       {screen === 'observations' && (
         <ObservationsScreen
           store={store}
           onBack={goGarden}
+          onDiscover={() => setScreen('discover')}
           onSelect={(id) => {
             setSelectedObservationId(id);
             setScreen('observation-detail');

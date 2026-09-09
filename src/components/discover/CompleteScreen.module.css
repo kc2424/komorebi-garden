@@ -1,64 +1,57 @@
-.screen {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 2rem 1rem;
-  padding-bottom: calc(2rem + var(--safe-bottom));
-  max-width: 480px;
-  margin: 0 auto;
-  width: 100%;
-  text-align: center;
-}
-
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 1rem;
+  text-align: center;
+  padding-top: 8px;
 }
 
-.emoji {
-  font-size: 4rem;
-  line-height: 1;
-  animation: welcome 0.6s ease;
+.photoWrap {
+  width: 100%;
+  max-width: 240px;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--frame-accent-soft, #f5e6d8);
+  border: 1px solid var(--frame-accent, #e8b896);
+  margin-bottom: 20px;
 }
 
-.heading {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--color-green-deep);
+.photo {
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: contain;
+  display: block;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(68, 60, 66, 0.08);
 }
 
 .name {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 22px;
   font-weight: 500;
-  color: var(--color-text);
+  color: var(--frame-text, var(--color-text));
+}
+
+.date {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--frame-text-muted, var(--color-text-muted));
+}
+
+.sampleLabel {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--frame-text-muted, var(--color-text-muted));
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--frame-accent-soft, rgba(102, 88, 97, 0.06));
 }
 
 .message {
-  margin: 0;
-  font-size: 0.9375rem;
-  color: var(--color-text-muted);
-  line-height: 1.7;
-  max-width: 280px;
-}
-
-.actions {
-  padding-top: 2rem;
-}
-
-@keyframes welcome {
-  0% { opacity: 0; transform: translateY(16px) scale(0.9); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .emoji {
-    animation: none;
-  }
+  margin: 24px 0 0;
+  font-size: 15px;
+  color: var(--frame-text-muted, var(--color-text-muted));
+  line-height: 1.6;
+  max-width: 320px;
 }

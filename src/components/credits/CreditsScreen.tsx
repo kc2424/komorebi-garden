@@ -1,5 +1,6 @@
 import { ASSET_CREDITS } from '../../data/assetCredits';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
+import { ScreenFrame } from '../ui/ScreenFrame';
 import styles from './CreditsScreen.module.css';
 
 interface CreditsScreenProps {
@@ -10,14 +11,7 @@ export function CreditsScreen({ onBack }: CreditsScreenProps) {
   const titleRef = useScreenFocus(['credits']);
 
   return (
-    <div className={styles.screen}>
-      <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onBack} aria-label="戻る">
-          ← 戻る
-        </button>
-        <h1 className={styles.title} ref={titleRef} tabIndex={-1}>写真のクレジット</h1>
-      </header>
-
+    <ScreenFrame title="写真のクレジット" titleRef={titleRef} onBack={onBack}>
       <p className={styles.intro}>
         サンプル写真は Wikimedia Commons の著作権者が Creative Commons ライセンスで公開した画像を使用しています。
         アプリ内表示用にリサイズ・JPEG圧縮しています。
@@ -56,6 +50,6 @@ export function CreditsScreen({ onBack }: CreditsScreenProps) {
           </li>
         ))}
       </ul>
-    </div>
+    </ScreenFrame>
   );
 }

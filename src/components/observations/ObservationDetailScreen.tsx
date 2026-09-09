@@ -3,6 +3,7 @@ import type { GardenStore } from '../../hooks/useGardenStore';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
 import { TULIP_COLORS } from '../../data/tulip';
 import { Button } from '../ui/Button';
+import { ScreenFrame } from '../ui/ScreenFrame';
 import styles from './ObservationDetailScreen.module.css';
 
 interface ObservationDetailScreenProps {
@@ -24,10 +25,10 @@ export function ObservationDetailScreen({
 
   if (!obs) {
     return (
-      <div className={styles.screen}>
-        <p>観察が見つかりません</p>
+      <ScreenFrame title="記録" onBack={onBack} tone="journal">
+        <p className={styles.notFound}>記録が見つかりません</p>
         <Button onClick={onBack}>戻る</Button>
-      </div>
+      </ScreenFrame>
     );
   }
 
@@ -49,61 +50,28 @@ export function ObservationDetailScreen({
     manual: '手動選択',
   }[obs.identificationSource];
 
+  const gardenLabel =
+    obs.plantType === 'tulip' ? 'チューリップ（植えられる）' : '観察のみ（庭未対応）';
+
   const handleSaveMemo = () => {
     const result = updateObservationMemo(observationId, memo);
     setMemoSaved(result.ok);
   };
 
   return (
-    <div className={styles.screen}>
-      <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onBack} aria-label="戻る">
-          ← 戻る
-        </button>
-        <h1 className={styles.title} ref={titleRef} tabIndex={-1}>
-          {obs.commonNameJa}
-        </h1>
-      </header>
-
+    <ScreenFrame title="記録" titleRef={titleRef} onBack={onBack} tone="journal">
       <div className={styles.photoSection}>
         <img src={obs.imageDataUrl} alt={`${obs.commonNameJa}の写真`} className={styles.photo} />
       </div>
 
-      <dl className={styles.stats}>
-        <div className={styles.stat}>
-          <dt>観察日</dt>
-          <dd>{formatDate(obs.takenAt)}</dd>
-        </div>
-        {obs.scientificName && (
-          <div className={styles.stat}>
-            <dt>学名</dt>
-            <dd>{obs.scientificName}</dd>
-          </div>
-        )}
-        {obs.familyName && (
-          <div className={styles.stat}>
-            <dt>科</dt>
-            <dd>{obs.familyName}</dd>
-          </div>
-        )}
-        {obs.color && (
-          <div className={styles.stat}>
-            <dt>色</dt>
-            <dd>{TULIP_COLORS.find((c) => c.id === obs.color)?.label}</dd>
-          </div>
-        )}
-        <div className={styles.stat}>
-          <dt>識別方法</dt>
-          <dd>{sourceLabel}</dd>
-        </div>
-        <div className={styles.stat}>
-          <dt>庭への反映</dt>
-          <dd>{obs.plantType === 'tulip' ? 'チューリップ（植えられる）' : '観察のみ'}</dd>
-        </div>
-      </dl>
+      <div className={styles.heroMeta}>
+        <h2 className={styles.plantName}>{obs.commonNameJa}</h2>
+        <p className={styles.date}>{formatDate(obs.takenAt)}</p>
+        {obs.isSample && <p className={styles.sampleNote}>サンプル写真・固定候補</p>}
+      </div>
 
       <section className={styles.memoSection}>
-        <h2 className={styles.sectionTitle}>思い出メモ</h2>
+        <h3 className={styles.sectionTitle}>思い出メモ</h3>
         <textarea
           className={styles.memoInput}
           value={memo}
@@ -118,6 +86,35 @@ export function ObservationDetailScreen({
         <Button variant="secondary" onClick={handleSaveMemo}>メモを保存</Button>
         {memoSaved && <p className={styles.savedNote} role="status">保存しました</p>}
       </section>
-    </div>
+
+      <dl className={styles.metaList}>
+        {obs.scientificName && (
+          <div className={styles.metaRow}>
+            <dt>学名</dt>
+            <dd>{obs.scientificName}</dd>
+          </div>
+        )}
+        {obs.familyName && (
+          <div className={styles.metaRow}>
+            <dt>科</dt>
+            <dd>{obs.familyName}</dd>
+          </div>
+        )}
+        {obs.color && (
+          <div className={styles.metaRow}>
+            <dt>色</dt>
+            <dd>{TULIP_COLORS.find((c) => c.id === obs.color)?.label}</dd>
+          </div>
+        )}
+        <div className={styles.metaRow}>
+          <dt>識別方法</dt>
+          <dd>{sourceLabel}</dd>
+        </div>
+        <div className={styles.metaRow}>
+          <dt>庭への反映</dt>
+          <dd>{gardenLabel}</dd>
+        </div>
+      </dl>
+    </ScreenFrame>
   );
 }

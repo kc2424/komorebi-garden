@@ -1,4 +1,5 @@
 import type {
+  GardenModelType,
   GardenState,
   GardenPlant,
   PlantObservation,
@@ -8,10 +9,16 @@ import type {
   TulipColor,
 } from '../types';
 import { defaultTulipColor } from '../data/tulip';
+import { isTulipModelPlant } from '../utils/plantModel';
 import { getPlantOnTile, getTileAt } from './persistence';
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isLinkableTulipObservation(state: GardenState, observationId: string): boolean {
+  const observation = state.observations.find((o) => o.id === observationId);
+  return observation !== undefined && observation.plantType === 'tulip';
 }
 
 export function attachSaveResult(
@@ -105,31 +112,61 @@ export function removeSoilTileAction(state: GardenState, tileId: string): Garden
   };
 }
 
-export function plantTulipAction(
+export function plantFlowerAction(
   state: GardenState,
   tileId: string,
+  modelType: GardenModelType,
   color: TulipColor,
+  observationId?: string | null,
+  rotation?: number,
 ): GardenState {
-  if (!state.tulipUnlocked) return state;
+  if (modelType === 'tulip' && !state.tulipUnlocked) return state;
   if (getPlantOnTile(state, tileId)) return state;
   if (!state.soilTiles.some((t) => t.id === tileId)) return state;
 
+  const linkedObservationId =
+    modelType === 'tulip' &&
+    observationId &&
+    isLinkableTulipObservation(state, observationId)
+      ? observationId
+      : undefined;
+
   const plant: GardenPlant = {
     id: newId('plant'),
-    color,
+    color: modelType === 'tulip' ? color : 'pink',
     tileId,
-    rotation: Math.random() * Math.PI * 2,
+    rotation: rotation ?? Math.random() * Math.PI * 2,
+    modelType,
+    ...(linkedObservationId ? { observationIds: [linkedObservationId] } : {}),
   };
 
   return { ...state, plants: [...state.plants, plant] };
 }
 
-export function plantFromStashAction(state: GardenState, plantId: string, tileId: string): GardenState {
+export function plantTulipAction(
+  state: GardenState,
+  tileId: string,
+  color: TulipColor,
+  observationId?: string | null,
+): GardenState {
+  return plantFlowerAction(state, tileId, 'tulip', color, observationId);
+}
+
+export function plantFromStashAction(
+  state: GardenState,
+  plantId: string,
+  tileId: string,
+  rotation?: number,
+): GardenState {
   const stashPlant = state.stashedPlants.find((p) => p.id === plantId);
   if (!stashPlant || getPlantOnTile(state, tileId)) return state;
   if (!state.soilTiles.some((t) => t.id === tileId)) return state;
 
-  const plant: GardenPlant = { ...stashPlant, tileId };
+  const plant: GardenPlant = {
+    ...stashPlant,
+    tileId,
+    ...(rotation !== undefined ? { rotation } : {}),
+  };
   return {
     ...state,
     plants: [...state.plants, plant],
@@ -168,6 +205,50 @@ export function updateObservationMemoAction(
     observations: state.observations.map((o) =>
       o.id === observationId ? { ...o, memo } : o,
     ),
+  };
+}
+
+export function linkPlantObservationAction(
+  state: GardenState,
+  plantId: string,
+  observationId: string,
+): GardenState {
+  const plant = [...state.plants, ...state.stashedPlants].find((p) => p.id === plantId);
+  if (!plant) return state;
+  if (!isTulipModelPlant(plant)) return state;
+  if (!isLinkableTulipObservation(state, observationId)) return state;
+
+  const existing = plant.observationIds ?? [];
+  if (existing.includes(observationId)) return state;
+
+  const updatePlant = (p: GardenPlant): GardenPlant =>
+    p.id === plantId ? { ...p, observationIds: [...existing, observationId] } : p;
+
+  return {
+    ...state,
+    plants: state.plants.map(updatePlant),
+    stashedPlants: state.stashedPlants.map(updatePlant),
+  };
+}
+
+export function unlinkPlantObservationAction(
+  state: GardenState,
+  plantId: string,
+  observationId: string,
+): GardenState {
+  const updatePlant = (p: GardenPlant): GardenPlant => {
+    if (p.id !== plantId || !p.observationIds) return p;
+    const nextIds = p.observationIds.filter((id) => id !== observationId);
+    return {
+      ...p,
+      observationIds: nextIds.length > 0 ? nextIds : undefined,
+    };
+  };
+
+  return {
+    ...state,
+    plants: state.plants.map(updatePlant),
+    stashedPlants: state.stashedPlants.map(updatePlant),
   };
 }
 

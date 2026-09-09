@@ -2,13 +2,15 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
 @media (min-width: 768px) {
   .app {
-    background: linear-gradient(160deg, #e8ebe4 0%, #d8e0d4 50%, #e0dcd0 100%);
+    background: linear-gradient(160deg, #e8e2dc 0%, #ddd6d0 50%, #e5dfd9 100%);
   }
 }
 
@@ -18,13 +20,17 @@
   align-items: center;
   justify-content: center;
   color: var(--color-text-muted);
-  font-size: 1rem;
+  font-size: 15px;
 }
 
 .errorBar {
-  position: sticky;
+  position: fixed;
   top: 0;
-  z-index: 50;
-  padding: 0.5rem 1rem;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 8px 20px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
   background: var(--color-error-bg);
+  pointer-events: auto;
 }

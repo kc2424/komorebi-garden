@@ -8,8 +8,10 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'こもれび植物園' })).toBeInTheDocument();
   });
 
-  it('shows discover button on garden screen', async () => {
+  it('shows main garden entrances on viewing home', async () => {
     render(<App />);
-    expect(await screen.findByRole('button', { name: '植物を見つけた' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '撮る' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '庭づくり' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '記録' })).toBeInTheDocument();
   });
 });

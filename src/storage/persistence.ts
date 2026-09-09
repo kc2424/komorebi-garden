@@ -1,4 +1,5 @@
-import type { GardenState, GardenPlant, SaveResult, SoilTile } from '../types';
+import type { GardenModelType, GardenState, GardenPlant, SaveResult, SoilTile } from '../types';
+import { resolvePlantModelType } from '../utils/plantModel';
 import {
   createEmptyState,
   migrateV1ToV2,
@@ -30,16 +31,44 @@ function isValidSoilTile(value: unknown): value is SoilTile {
   );
 }
 
+const GARDEN_MODEL_TYPES: GardenModelType[] = ['tulip', 'cosmos', 'pansy'];
+
 function isValidPlant(value: unknown): value is GardenPlant {
   if (!value || typeof value !== 'object') return false;
   const p = value as GardenPlant;
   const colors = ['red', 'yellow', 'pink', 'white', 'purple', 'orange'];
+  const observationIdsValid =
+    p.observationIds === undefined ||
+    (Array.isArray(p.observationIds) && p.observationIds.every((id) => typeof id === 'string'));
+  const modelTypeValid =
+    p.modelType === undefined || GARDEN_MODEL_TYPES.includes(p.modelType);
   return (
     typeof p.id === 'string' &&
     colors.includes(p.color) &&
     typeof p.tileId === 'string' &&
-    typeof p.rotation === 'number'
+    typeof p.rotation === 'number' &&
+    observationIdsValid &&
+    modelTypeValid
   );
+}
+
+export function normalizeGardenState(state: GardenState): GardenState {
+  const normalizePlant = (plant: GardenPlant): GardenPlant => {
+    const modelType = resolvePlantModelType(plant);
+    const observationIds =
+      modelType === 'tulip' ? plant.observationIds : undefined;
+    return {
+      ...plant,
+      modelType: plant.modelType ?? undefined,
+      observationIds,
+    };
+  };
+
+  return {
+    ...state,
+    plants: state.plants.map(normalizePlant),
+    stashedPlants: state.stashedPlants.map(normalizePlant),
+  };
 }
 
 function isValidGardenState(value: unknown): value is GardenState {
@@ -96,7 +125,7 @@ export function loadState(): LoadResult {
       };
     }
 
-    return { state: parsed };
+    return { state: normalizeGardenState(parsed) };
   } catch {
     return {
       state: createEmptyState(),

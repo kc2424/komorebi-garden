@@ -1,28 +1,26 @@
 :root {
-  --color-bg: #f5f0e6;
-  --color-bg-warm: #ebe4d4;
-  --color-surface: #fffdf8;
-  --color-green-deep: #2d4a3e;
-  --color-green-mid: #4a6b5d;
-  --color-green-light: #8aab98;
-  --color-earth: #8b7355;
-  --color-earth-light: #c4a882;
-  --color-accent-pink: #d4849a;
-  --color-accent-yellow: #e8c547;
-  --color-accent-purple: #9b7bb8;
-  --color-text: #2a3328;
-  --color-text-muted: #5c6b5e;
-  --color-border: #d8cfc0;
-  --color-shadow: rgba(45, 74, 62, 0.12);
+  --color-bg: #f5f1ec;
+  --color-surface: #fffcf8;
+  --color-text: #443c42;
+  --color-text-muted: #70686b;
+  --color-border: #e3ddd8;
+  --color-primary: #665861;
+  --color-primary-text: #fffcf8;
   --color-error: #b54a4a;
   --color-error-bg: #fdf0f0;
-  --font-body: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', sans-serif;
-  --radius-sm: 8px;
+  --font-body: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  --radius-sm: 12px;
   --radius-md: 14px;
-  --radius-lg: 20px;
+  --radius-lg: 16px;
+  --radius-panel: 28px;
   --tap-min: 44px;
-  --header-h: 52px;
+  --btn-height: 52px;
+  --header-h: 56px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 20px;
+  --space-lg: 28px;
 }
 
 *,
@@ -39,6 +37,7 @@ html {
 body {
   margin: 0;
   font-family: var(--font-body);
+  font-size: 15px;
   color: var(--color-text);
   background: var(--color-bg);
   line-height: 1.6;
@@ -69,11 +68,11 @@ button {
 }
 
 a {
-  color: var(--color-green-mid);
+  color: var(--color-primary);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-green-mid);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 

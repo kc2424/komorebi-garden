@@ -1,5 +1,7 @@
 export type TulipColor = 'red' | 'yellow' | 'pink' | 'white' | 'purple' | 'orange';
 
+export type GardenModelType = 'tulip' | 'cosmos' | 'pansy';
+
 export type PlantType = 'tulip' | 'other';
 
 export type IdentificationSource = 'sample' | 'plantnet' | 'manual';
@@ -17,7 +19,13 @@ export interface GardenPlant {
   color: TulipColor;
   tileId: string;
   rotation: number;
+  /** Omitted or undefined means tulip for v2 backward compatibility. */
+  modelType?: GardenModelType;
+  /** Explicit links to observation records; never inferred from color or species. */
+  observationIds?: string[];
 }
+
+export type GardenScreenPhase = 'viewing' | 'building';
 
 export interface PlantObservation {
   id: string;

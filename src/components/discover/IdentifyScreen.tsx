@@ -5,6 +5,7 @@ import { getSamplePhoto } from '../../data/sampleIdentification';
 import { identifyPlantImage } from '../../services/identification';
 import { Banner } from '../ui/Banner';
 import { Button } from '../ui/Button';
+import { ScreenFrame } from '../ui/ScreenFrame';
 import styles from './IdentifyScreen.module.css';
 
 interface IdentifyScreenProps {
@@ -21,6 +22,27 @@ interface IdentifyScreenProps {
   }) => boolean;
 }
 
+function pendingProvenanceLabel(isSample: boolean): string {
+  return isSample ? 'サンプル写真・固定候補' : '写真から候補を確認しています';
+}
+
+function provenanceLabel(
+  status: 'sample' | 'plantnet' | 'manual' | 'not-configured' | 'error',
+): string {
+  switch (status) {
+    case 'sample':
+      return 'サンプル写真・固定候補';
+    case 'plantnet':
+      return 'Pl@ntNet の候補';
+    case 'not-configured':
+      return 'API未設定 — 手動で選んで保存できます';
+    case 'error':
+      return '識別に失敗 — 手動で選んで保存できます';
+    default:
+      return '手動で選んで保存';
+  }
+}
+
 export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
   const [loading, setLoading] = useState(true);
   const [candidates, setCandidates] = useState<IdentificationCandidate[]>([]);
@@ -35,6 +57,7 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
   const isSample = draft.source === 'sample';
   const selected = candidates[selectedIndex];
   const isTulip = selected?.plantType === 'tulip';
+  const showErrorBanner = identStatus === 'error' && statusMessage;
 
   useEffect(() => {
     let cancelled = false;
@@ -49,7 +72,7 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
         setIdentStatus('sample');
         setProviderCandidateCount(0);
         setSelectedIndex(0);
-        setStatusMessage('体験用サンプル：判定結果は固定候補です。');
+        setStatusMessage(null);
       } else if (result.status === 'not-configured') {
         setCandidates(result.candidates);
         setIdentStatus('not-configured');
@@ -68,7 +91,7 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
         setIdentStatus('plantnet');
         setProviderCandidateCount(providerCount);
         setSelectedIndex(0);
-        setStatusMessage('Pl@ntNet API による識別候補です。必ず確認してください。');
+        setStatusMessage(null);
       }
       setLoading(false);
     })();
@@ -97,45 +120,43 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
     if (!saved) setSubmitting(false);
   };
 
-  return (
-    <div className={styles.screen}>
-      <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onBack} aria-label="戻る">
-          ← 戻る
-        </button>
-        <h1 className={styles.title}>確認して保存</h1>
-      </header>
+  const footer = (
+    <Button
+      fullWidth
+      onClick={handleSave}
+      loading={submitting}
+      disabled={submitting || loading || !selected}
+    >
+      記録を残す
+    </Button>
+  );
 
-      {identStatus === 'sample' && (
-        <Banner variant="sample" message="体験版：サンプル写真の固定候補です。実際のAI識別ではありません。" />
-      )}
-      {identStatus === 'not-configured' && statusMessage && (
-        <Banner variant="sample" message={statusMessage} />
-      )}
-      {identStatus === 'error' && statusMessage && (
-        <Banner variant="error" message={statusMessage} />
-      )}
-      {identStatus === 'plantnet' && statusMessage && (
-        <Banner variant="sample" message={statusMessage} />
-      )}
-      {(identStatus === 'error' || identStatus === 'not-configured') && (
-        <Banner variant="sample" message="API候補はありません。不明として保存するか、手動で選んでください。" />
+  return (
+    <ScreenFrame title="写真を確認" onBack={onBack} footer={footer} tone="discovery">
+      {showErrorBanner && (
+        <Banner variant="error" message={statusMessage!} />
       )}
 
       <div className={styles.photoPreview}>
         <img src={draft.imageDataUrl} alt="選択した植物の写真" className={styles.photo} />
       </div>
 
+      <p className={styles.provenance}>
+        {loading ? pendingProvenanceLabel(isSample) : provenanceLabel(identStatus)}
+      </p>
+      {identStatus === 'not-configured' && statusMessage && (
+        <p className={styles.provenanceDetail}>{statusMessage}</p>
+      )}
+
       {loading ? (
-        <p className={styles.loadingText} role="status">識別候補を取得中…</p>
+        <p className={styles.loadingText} role="status">候補を読み込み中…</p>
       ) : (
         <>
           <section aria-labelledby="candidates-heading">
-            <h2 id="candidates-heading" className={styles.sectionTitle}>植物名の候補</h2>
-            <p className={styles.hint}>当てはまるものを選んでください。チューリップ以外は観察のみ保存されます。</p>
+            <h2 id="candidates-heading" className={styles.sectionTitle}>候補を確認</h2>
             {identStatus === 'plantnet' && (
               <p className={styles.hint}>
-                候補スコアが高い順に並んでいますが、上位だから正しいとは限りません。写真と合う名前を選んで保存してください。
+                スコア順ですが必ずしも正しくありません。写真と合う名前を選んでください。
               </p>
             )}
 
@@ -149,15 +170,16 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
                     role="radio"
                     aria-checked={selectedIndex === i}
                   >
-                    <span className={styles.candidateName}>
-                      {c.commonNameJa}
-                      {c.plantType === 'tulip' ? '（庭に植えられる）' : ''}
+                    <span className={styles.candidateMain}>
+                      <span className={styles.candidateName}>{c.commonNameJa}</span>
+                      {selectedIndex === i && (
+                        <span className={styles.candidateMark} aria-hidden="true">✓</span>
+                      )}
                     </span>
-                    {c.scientificName && (
-                      <span className={styles.candidateSci}>{c.scientificName}</span>
-                    )}
-                    {c.familyName && (
-                      <span className={styles.candidateFamily}>{c.familyName}</span>
+                    {(c.scientificName || c.familyName) && (
+                      <span className={styles.candidateMeta}>
+                        {[c.scientificName, c.familyName].filter(Boolean).join(' · ')}
+                      </span>
                     )}
                     {c.score !== undefined && (
                       <span className={styles.candidateScore}>
@@ -170,19 +192,6 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
             </ul>
           </section>
 
-          <section className={styles.manualSection}>
-            <label className={styles.manualLabel} htmlFor="custom-name">
-              名前を変更（任意）
-            </label>
-            <input
-              id="custom-name"
-              className={styles.manualInput}
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              placeholder={selected?.commonNameJa ?? '植物名'}
-            />
-          </section>
-
           {selected && (
             <section className={styles.traitSection} aria-labelledby="trait-heading">
               <h2 id="trait-heading" className={styles.sectionTitle}>特徴</h2>
@@ -193,8 +202,8 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
           {isTulip && (
             <section className={styles.colorSection} aria-labelledby="color-heading">
               <h2 id="color-heading" className={styles.sectionTitle}>チューリップの色</h2>
-              <p className={styles.hint}>色は自動判定しません。見た色を選んでください。</p>
-              <div className={styles.colorRow}>
+              <p className={styles.hint}>見た色を選んでください。</p>
+              <div className={styles.colorRow} role="group" aria-label="チューリップの色">
                 {TULIP_COLORS.map((c) => (
                   <button
                     key={c.id}
@@ -209,22 +218,23 @@ export function IdentifyScreen({ draft, onBack, onSave }: IdentifyScreenProps) {
               </div>
             </section>
           )}
+
+          <section className={styles.nameSection}>
+            <label className={styles.nameLabel} htmlFor="custom-name">
+              名前（任意）
+            </label>
+            <input
+              id="custom-name"
+              className={styles.nameInput}
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              placeholder={selected?.commonNameJa ?? '植物名'}
+            />
+          </section>
         </>
       )}
-
-      <div className={styles.actions}>
-        <Button
-          fullWidth
-          onClick={handleSave}
-          loading={submitting}
-          disabled={submitting || loading || !selected}
-        >
-          観察として保存
-        </Button>
-        <Button variant="ghost" fullWidth onClick={onBack} disabled={submitting}>
-          キャンセル
-        </Button>
-      </div>
-    </div>
+    </ScreenFrame>
   );
 }
+
+export { provenanceLabel };
