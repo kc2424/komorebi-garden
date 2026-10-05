@@ -6,15 +6,25 @@ import styles from './ObservationsScreen.module.css';
 
 interface ObservationsScreenProps {
   store: GardenStore;
+  tulipOnly?: boolean;
   onBack: () => void;
   onDiscover: () => void;
   onSelect: (observationId: string) => void;
 }
 
-export function ObservationsScreen({ store, onBack, onDiscover, onSelect }: ObservationsScreenProps) {
+export function ObservationsScreen({
+  store,
+  tulipOnly,
+  onBack,
+  onDiscover,
+  onSelect,
+}: ObservationsScreenProps) {
   const { state } = store;
-  const titleRef = useScreenFocus(['observations']);
-  const sorted = [...state.observations].sort(
+  const titleRef = useScreenFocus(['observations', tulipOnly ? 'tulip' : 'all']);
+  const filtered = tulipOnly
+    ? state.observations.filter((o) => o.plantType === 'tulip')
+    : state.observations;
+  const sorted = [...filtered].sort(
     (a, b) => new Date(b.takenAt).getTime() - new Date(a.takenAt).getTime(),
   );
 
@@ -49,7 +59,12 @@ export function ObservationsScreen({ store, onBack, onDiscover, onSelect }: Obse
   }
 
   return (
-    <ScreenFrame title="記録" titleRef={titleRef} onBack={onBack} tone="journal">
+    <ScreenFrame
+      title={tulipOnly ? 'チューリップの観察' : '記録'}
+      titleRef={titleRef}
+      onBack={onBack}
+      tone="journal"
+    >
       {state.legacyV1 && (
         <p className={styles.legacyNote}>
           2D体験版の記録 {state.legacyV1.observations.length}件を引き継ぎ済みです。

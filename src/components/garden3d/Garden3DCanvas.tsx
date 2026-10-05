@@ -1,10 +1,12 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import type {
   GardenEditMode,
+  GardenDecoration,
+  GardenDecorationType,
   GardenModelType,
   GardenPlant,
   GardenScreenPhase,
@@ -21,16 +23,26 @@ import {
 } from '../../utils/gardenCamera';
 import { DecorativeSky } from '../garden/DecorativeSky';
 import type { SkyPeriod } from '../../utils/skyTime';
-import { GardenPlantMesh, GhostTileMarker, SoilTileMesh, TILE_SIZE } from './ProceduralMeshes';
+import { getTileElevation } from '../../utils/terrain';
+import { getGardenShadowRevision } from '../../utils/gardenShadows';
+import {
+  GardenDecorationMesh,
+  GardenPlantMesh,
+  GhostTileMarker,
+  SoilTileMesh,
+  TILE_SIZE,
+} from './ProceduralMeshes';
 import styles from './Garden3DCanvas.module.css';
 
 interface Garden3DCanvasProps {
   soilTiles: SoilTile[];
   plants: GardenPlant[];
+  decorations: GardenDecoration[];
   gardenPhase: GardenScreenPhase;
   editMode: GardenEditMode;
   selectedTileId: string | null;
   selectedPlantId: string | null;
+  selectedDecorationId?: string | null;
   focusPlantId: string | null;
   highlightPlantId: string | null;
   plantColor: TulipColor;
@@ -43,13 +55,20 @@ interface Garden3DCanvasProps {
     color: TulipColor;
     rotation: number;
   } | null;
+  pendingDecorationPreview?: {
+    type: GardenDecorationType;
+    rotation: number;
+  } | null;
   memoryPanelOpen?: boolean;
+  cameraResetKey?: number;
+  bottomInsetPx?: number;
   skyPeriod: SkyPeriod;
   skyCloudMotionEnabled: boolean;
   skyTransitionsEnabled: boolean;
   onTileClick: (tileId: string) => void;
   onGhostTileClick: (x: number, z: number) => void;
   onPlantClick: (plantId: string) => void;
+  onDecorationClick?: (decorationId: string) => void;
 }
 
 const TAP_THRESHOLD_PX = 12;
@@ -61,6 +80,10 @@ function CameraRig({
   soilTiles,
   addablePositions,
   focusPlant,
+  plants,
+  decorations,
+  cameraResetKey,
+  bottomInsetPx,
   reducedMotion,
   memoryPanelOpen,
   viewportHeight,
@@ -70,6 +93,10 @@ function CameraRig({
   soilTiles: SoilTile[];
   addablePositions: { x: number; z: number }[];
   focusPlant: GardenPlant | null;
+  plants: GardenPlant[];
+  decorations: GardenDecoration[];
+  cameraResetKey: number;
+  bottomInsetPx?: number;
   reducedMotion: boolean;
   memoryPanelOpen: boolean;
   viewportHeight: number;
@@ -79,17 +106,20 @@ function CameraRig({
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const animatingRef = useRef(false);
   const goalPoseRef = useRef<CameraPose | null>(null);
+  const manuallyMovedRef = useRef(false);
+  const previousNavigationRef = useRef<string | null>(null);
 
   const targetPose = useMemo<CameraPose>(() => {
     if (gardenPhase === 'building') {
-      return getBuildingCameraPose(soilTiles, addablePositions, viewportHeight, viewportAspect);
+      return getBuildingCameraPose(soilTiles, addablePositions, viewportHeight, viewportAspect, { plants, decorations, bottomInsetPx });
     }
     return getViewingCameraPose(soilTiles, focusPlant, {
       viewportHeight,
       viewportAspect,
       memoryPanelOpen,
+      plants, decorations, bottomInsetPx,
     });
-  }, [gardenPhase, soilTiles, addablePositions, focusPlant, viewportHeight, viewportAspect, memoryPanelOpen]);
+  }, [gardenPhase, soilTiles, addablePositions, focusPlant, viewportHeight, viewportAspect, memoryPanelOpen, plants, decorations, bottomInsetPx]);
 
   const orbitLimits = useMemo(
     () =>
@@ -97,8 +127,9 @@ function CameraRig({
         viewportHeight,
         viewportAspect,
         memoryPanelOpen,
+        plants, decorations, bottomInsetPx,
       }),
-    [gardenPhase, soilTiles, addablePositions, viewportHeight, viewportAspect, memoryPanelOpen],
+    [gardenPhase, soilTiles, addablePositions, viewportHeight, viewportAspect, memoryPanelOpen, plants, decorations, bottomInsetPx],
   );
 
   const applyPose = (pose: CameraPose) => {
@@ -113,8 +144,14 @@ function CameraRig({
     }
   };
 
+  const navigationKey = `${gardenPhase}:${focusPlant?.id ?? 'overview'}:${memoryPanelOpen}:${cameraResetKey}:${viewportHeight}:${viewportAspect}:${bottomInsetPx ?? 0}`;
   useEffect(() => {
-    if (reducedMotion) {
+    const firstPose = previousNavigationRef.current === null;
+    const navigationChanged = previousNavigationRef.current !== navigationKey;
+    previousNavigationRef.current = navigationKey;
+    if (navigationChanged) manuallyMovedRef.current = false;
+    if (manuallyMovedRef.current) return;
+    if (reducedMotion || firstPose) {
       animatingRef.current = false;
       goalPoseRef.current = null;
       applyPose(targetPose);
@@ -123,7 +160,7 @@ function CameraRig({
 
     goalPoseRef.current = targetPose;
     animatingRef.current = true;
-  }, [targetPose, reducedMotion, camera]);
+  }, [targetPose, reducedMotion, camera, navigationKey]);
 
   useFrame((_, delta) => {
     if (!animatingRef.current || reducedMotion || !goalPoseRef.current) return;
@@ -160,6 +197,7 @@ function CameraRig({
   });
 
   const handleControlStart = () => {
+    manuallyMovedRef.current = true;
     animatingRef.current = false;
     goalPoseRef.current = null;
   };
@@ -177,20 +215,48 @@ function CameraRig({
   );
 }
 
+/**
+ * Drei 10.7's frame counter resets on a component render. Memoization captures once
+ * per geometry revision while keeping its render targets alive between edits.
+ * A keyed remount would recreate those targets for every placement.
+ */
+const GardenContactShadows = memo(function GardenContactShadows({ centerX, centerZ }: {
+  centerX: number;
+  centerZ: number;
+  revision: string;
+}) {
+  return (
+    <ContactShadows
+      frames={1}
+      position={[centerX * TILE_SIZE, GROUND_Y + 0.002, centerZ * TILE_SIZE]}
+      opacity={0.22}
+      scale={16}
+      blur={2.8}
+      far={5}
+      resolution={512}
+      color="#5a4a52"
+    />
+  );
+});
+
 function GardenScene({
   soilTiles,
   plants,
+  decorations,
   editMode,
   selectedTileId,
   selectedPlantId,
+  selectedDecorationId,
   highlightPlantId,
   addablePositions,
   onTileClick,
   onGhostTileClick,
   onPlantClick,
+  onDecorationClick,
   plantingFlowActive = false,
   pendingPlacementTileId = null,
   pendingPlacementPreview = null,
+  pendingDecorationPreview = null,
 }: Omit<
   Garden3DCanvasProps,
   | 'plantColor'
@@ -201,8 +267,14 @@ function GardenScene({
   | 'skyPeriod'
   | 'skyCloudMotionEnabled'
   | 'skyTransitionsEnabled'
+  | 'cameraResetKey'
+  | 'bottomInsetPx'
 >) {
   const plantTileIds = useMemo(() => new Set(plants.map((p) => p.tileId)), [plants]);
+  const decorationTileIds = useMemo(
+    () => new Set(decorations.map((decoration) => decoration.tileId)),
+    [decorations],
+  );
   const gardenCenter = useMemo(() => {
     if (soilTiles.length === 0) return [0, 0] as [number, number];
     const xs = soilTiles.map((t) => t.x);
@@ -212,6 +284,12 @@ function GardenScene({
       number,
     ];
   }, [soilTiles]);
+
+  const shadowRevision = getGardenShadowRevision({
+    soilTiles, plants, decorations, editMode, plantingFlowActive, selectedTileId, selectedPlantId,
+    selectedDecorationId, highlightPlantId, addablePositions,
+    pendingPlacementTileId, pendingPlacementPreview, pendingDecorationPreview,
+  });
 
   return (
     <>
@@ -239,54 +317,74 @@ function GardenScene({
         <shadowMaterial transparent opacity={SHADOW_PLANE_OPACITY} color="#4a3a42" />
       </mesh>
 
-      <ContactShadows
-        position={[gardenCenter[0] * TILE_SIZE, GROUND_Y + 0.002, gardenCenter[1] * TILE_SIZE]}
-        opacity={0.22}
-        scale={16}
-        blur={2.8}
-        far={5}
-        resolution={512}
-        color="#5a4a52"
+      <GardenContactShadows
+        centerX={gardenCenter[0]}
+        centerZ={gardenCenter[1]}
+        revision={shadowRevision}
       />
 
       {soilTiles.map((tile) => {
         const hasPlant = plantTileIds.has(tile.id);
+        const occupied = hasPlant || decorationTileIds.has(tile.id);
         let highlight: 'add' | 'remove' | 'plant' | 'move' | null = null;
-        if (editMode === 'remove-soil' && !hasPlant) highlight = 'remove';
-        if ((editMode === 'plant' || plantingFlowActive) && !hasPlant) highlight = 'plant';
-        if (editMode === 'move' && !hasPlant) highlight = 'move';
+        if (editMode === 'remove-soil' || editMode === 'lower-terrain') highlight = 'remove';
+        if (editMode === 'raise-terrain') highlight = 'add';
+        if ((editMode === 'plant' || editMode === 'place-decoration' || plantingFlowActive) && !occupied) highlight = 'plant';
+        if (editMode === 'move' && !occupied) highlight = 'move';
 
         const plant = plants.find((p) => p.tileId === tile.id);
+        const tileY = 0.06 + getTileElevation(tile);
+        const terrainTool = ['paint-surface', 'raise-terrain', 'lower-terrain', 'remove-soil'].includes(editMode);
 
         return (
           <group key={tile.id}>
             <SoilTileMesh
               x={tile.x}
               z={tile.z}
+              surface={tile.surface}
+              height={tile.height}
               selected={selectedTileId === tile.id}
               highlight={highlight}
               onClick={() => onTileClick(tile.id)}
             />
             {plant && (
-              <group position={[tile.x * TILE_SIZE, 0.06, tile.z * TILE_SIZE]}>
+              <group position={[tile.x * TILE_SIZE, tileY, tile.z * TILE_SIZE]}>
                 <GardenPlantMesh
                   plant={plant}
                   selected={
                     highlightPlantId === plant.id ||
                     (editMode !== 'view' && selectedPlantId === plant.id)
                   }
-                  onClick={() => onPlantClick(plant.id)}
+                  onClick={() => terrainTool ? onTileClick(tile.id) : onPlantClick(plant.id)}
                 />
               </group>
             )}
-            {pendingPlacementTileId === tile.id && pendingPlacementPreview && !plant && (
-              <group position={[tile.x * TILE_SIZE, 0.06, tile.z * TILE_SIZE]}>
+            {decorations.filter((item) => item.tileId === tile.id).map((decoration) => (
+              <group key={decoration.id} position={[tile.x * TILE_SIZE, tileY, tile.z * TILE_SIZE]}>
+                <GardenDecorationMesh
+                  decoration={decoration}
+                  selected={selectedDecorationId === decoration.id}
+                  onClick={() => terrainTool ? onTileClick(tile.id) : onDecorationClick?.(decoration.id)}
+                />
+              </group>
+            ))}
+            {pendingPlacementTileId === tile.id && pendingPlacementPreview && !occupied && (
+              <group position={[tile.x * TILE_SIZE, tileY, tile.z * TILE_SIZE]}>
                 <GardenPlantMesh
                   plant={{
                     color: pendingPlacementPreview.color,
                     rotation: pendingPlacementPreview.rotation,
                     modelType: pendingPlacementPreview.modelType,
                   }}
+                  ghost
+                  selected
+                />
+              </group>
+            )}
+            {pendingPlacementTileId === tile.id && pendingDecorationPreview && !occupied && (
+              <group position={[tile.x * TILE_SIZE, tileY, tile.z * TILE_SIZE]}>
+                <GardenDecorationMesh
+                  decoration={pendingDecorationPreview}
                   ghost
                   selected
                 />
@@ -319,6 +417,8 @@ export function Garden3DCanvas({
   focusPlantId,
   highlightPlantId,
   memoryPanelOpen = false,
+  cameraResetKey = 0,
+  bottomInsetPx,
   skyPeriod,
   skyCloudMotionEnabled,
   skyTransitionsEnabled,
@@ -399,6 +499,11 @@ export function Garden3DCanvas({
     sceneProps.onTileClick(tileId);
   };
 
+  const handleDecorationClick = (decorationId: string) => {
+    if (dragging.current) return;
+    sceneProps.onDecorationClick?.(decorationId);
+  };
+
   const handleGhostClick = (x: number, z: number) => {
     if (dragging.current) return;
     sceneProps.onGhostTileClick(x, z);
@@ -443,6 +548,7 @@ export function Garden3DCanvas({
             addablePositions={addablePositions}
             {...sceneProps}
             onPlantClick={handlePlantClick}
+            onDecorationClick={handleDecorationClick}
             onTileClick={handleTileClick}
             onGhostTileClick={handleGhostClick}
           />
@@ -451,6 +557,10 @@ export function Garden3DCanvas({
             soilTiles={soilTiles}
             addablePositions={addablePositions}
             focusPlant={focusPlant}
+            plants={plants}
+            decorations={sceneProps.decorations}
+            cameraResetKey={cameraResetKey}
+            bottomInsetPx={bottomInsetPx}
             reducedMotion={reducedMotion}
             memoryPanelOpen={memoryPanelOpen}
             viewportHeight={viewportHeight}

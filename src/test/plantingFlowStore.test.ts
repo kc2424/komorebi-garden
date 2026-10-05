@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useGardenStore } from '../hooks/useGardenStore';
 import { createEmptyState } from '../storage/persistence';
 import type { GardenState, SaveResult } from '../types';
 
-const saveStateMock = vi.fn((_state: GardenState): SaveResult => ({ ok: true }));
+const saveStateMock = vi.fn(async (_state: GardenState): Promise<SaveResult> => ({ ok: true }));
 
 vi.mock('../storage/persistence', async () => {
   const actual = await vi.importActual<typeof import('../storage/persistence')>(
@@ -12,15 +12,15 @@ vi.mock('../storage/persistence', async () => {
   );
   return {
     ...actual,
-    loadState: () => ({ state: createEmptyState() }),
-    saveState: (state: GardenState) => saveStateMock(state),
+    loadState: async () => ({ state: createEmptyState() }),
+    saveState: async (state: GardenState) => saveStateMock(state),
   };
 });
 
 describe('useGardenStore planting flow', () => {
   beforeEach(() => {
     saveStateMock.mockReset();
-    saveStateMock.mockReturnValue({ ok: true });
+    saveStateMock.mockResolvedValue({ ok: true });
   });
 
   it('cancel pending placement does not save a plant', () => {
@@ -47,7 +47,7 @@ describe('useGardenStore planting flow', () => {
     expect(saveStateMock).not.toHaveBeenCalled();
   });
 
-  it('confirm pending placement saves with the preview rotation', () => {
+  it('confirm pending placement saves with the preview rotation', async () => {
     const { result } = renderHook(() => useGardenStore());
 
     act(() => {
@@ -62,8 +62,8 @@ describe('useGardenStore planting flow', () => {
       result.current.beginPendingPlacement(tileId);
     });
 
-    act(() => {
-      result.current.confirmPendingPlacement();
+    await act(async () => {
+      await result.current.confirmPendingPlacement();
     });
 
     expect(result.current.state.plants).toHaveLength(1);
@@ -73,7 +73,7 @@ describe('useGardenStore planting flow', () => {
     expect(saveStateMock).toHaveBeenCalled();
   });
 
-  it('stash restore: select, place, cancel, retry, confirm keeps id type rotation', () => {
+  it('stash restore: select, place, cancel, retry, confirm keeps id type rotation', async () => {
     const { result } = renderHook(() => useGardenStore());
 
     act(() => {
@@ -86,8 +86,8 @@ describe('useGardenStore planting flow', () => {
     act(() => {
       result.current.beginPendingPlacement(plantTileId);
     });
-    act(() => {
-      result.current.confirmPendingPlacement();
+    await act(async () => {
+      await result.current.confirmPendingPlacement();
     });
     expect(result.current.state.plants).toHaveLength(1);
 
@@ -95,7 +95,7 @@ describe('useGardenStore planting flow', () => {
     const originalRotation = result.current.state.plants[0].rotation;
     const observationCount = result.current.state.observations.length;
 
-    act(() => {
+    await act(async () => {
       result.current.stashPlant(plantId);
     });
 
@@ -106,11 +106,11 @@ describe('useGardenStore planting flow', () => {
 
     expect(result.current.pendingFromStashPlantId).toBe(plantId);
 
-    const firstTile = result.current.state.soilTiles[0].id;
+    const emptyTile = result.current.emptySoilTiles[0]?.id ?? result.current.state.soilTiles[0].id;
     act(() => {
-      result.current.beginPendingPlacement(firstTile);
+      result.current.beginPendingPlacement(emptyTile);
     });
-    expect(result.current.pendingPlacementTileId).toBe(firstTile);
+    expect(result.current.pendingPlacementTileId).toBe(emptyTile);
 
     act(() => {
       result.current.cancelPendingPlacement();
@@ -120,13 +120,15 @@ describe('useGardenStore planting flow', () => {
     expect(result.current.pendingRotation).toBe(originalRotation);
 
     act(() => {
-      result.current.beginPendingPlacement(firstTile);
+      result.current.beginPendingPlacement(emptyTile);
     });
-    act(() => {
-      result.current.confirmPendingPlacement();
+    await act(async () => {
+      await result.current.confirmPendingPlacement();
     });
 
-    expect(result.current.state.plants).toHaveLength(1);
+    await waitFor(() => {
+      expect(result.current.state.plants).toHaveLength(1);
+    });
     expect(result.current.state.plants[0].id).toBe(plantId);
     expect(result.current.state.plants[0].modelType).toBe('cosmos');
     expect(result.current.state.plants[0].rotation).toBe(originalRotation);
@@ -155,8 +157,8 @@ describe('useGardenStore planting flow', () => {
     expect(result.current.pendingPlacementTileId).toBeNull();
   });
 
-  it('keeps pending placement when save fails', () => {
-    saveStateMock.mockReturnValue({ ok: false, error: 'disk full' });
+  it('keeps pending placement when save fails', async () => {
+    saveStateMock.mockResolvedValue({ ok: false, error: 'disk full' });
     const { result } = renderHook(() => useGardenStore());
 
     act(() => {
@@ -170,8 +172,8 @@ describe('useGardenStore planting flow', () => {
       result.current.beginPendingPlacement(tileId);
     });
 
-    act(() => {
-      result.current.confirmPendingPlacement();
+    await act(async () => {
+      await result.current.confirmPendingPlacement();
     });
 
     expect(result.current.state.plants).toHaveLength(0);

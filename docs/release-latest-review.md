@@ -1,0 +1,14 @@
+# 統合の核心確認
+
+Astra 2026-09-10。統合途中のため最終コードで解消していれば再修正不要。
+
+1. useGardenStore.saveObservationがvoid applyState(next)の直後にsaved:trueを返すと、IndexedDB失敗でも下書きを削除し完了画面へ進む。updateObservation/updateObservationMemoも同じ。全呼び出し側まで実際の非同期保存結果をawaitし、失敗時はフォーム/下書きを保持。保存失敗の回帰テストが必要。confirmPendingPlacementは既にawait化されている。
+2. DataManagementScreenの復元でbackup側のsyncメタをそのまま使うと現在アカウントのサーバーrevisionと食い違う。現在のlastSyncedRevision/tombstoneRevisionを保持し新しいローカル変更としてpending+revisionを増やす。ログイン中offline wipeは全削除成功に見せず止め、成功時はサーバーの新しい墓標revisionを保持。削除で他スコープを消さない。
+3. 既存v2の移行成功時だけ初回案内をスキップ。新規画面からログイン導線も必要（統合契約参照）。
+4. 識別画面・観察詳細のJSXを旧版へ丸ごと戻すと最新CSSと不一致になりうる。最新ScreenFrame/レイアウトを保って機能差分を足す。旧版で削除されたCSS classへの参照がないか確認。
+
+3D/カメラ/空のコードは現時点で差分なし。最新のモデルと明示観察リンクは維持されている。
+
+5. 統合後5186で再現: App.tsx末尾に旧版の主要ナビゲーションが追加され、最新GardenScreenの「撮る/庭づくり/記録」と二重表示。App.module.cssにbottomNav/navActive定義もない。この旧ナビは除去し、最新のナビと設定ボタンを使う。Appを含め変更TSX全体で未定義CSSクラスを点検する。
+
+ブラウザ再起動後、v2保存済みチューリップ1本と観察1件は初回案内なしで復元できた。5186 PID44221 cwd=c771、識別API health configured:true。Supabase環境も外部ファイルから注入済み。

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">こもれび植物園</string>
+    <string name="title_activity_main">こもれび植物園</string>
+    <string name="package_name">com.komorebi.garden</string>
+    <string name="custom_url_scheme">com.komorebi.garden</string>
+</resources>

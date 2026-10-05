@@ -108,3 +108,30 @@
   margin: 0;
   color: var(--frame-text, var(--color-text));
 }
+
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.colorSwatch {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(68, 60, 66, 0.2);
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.colorSwatch:focus-visible {
+  outline: 2px solid var(--frame-select-border, var(--color-primary));
+  outline-offset: 2px;
+}
+
+.colorSelected {
+  border-color: var(--frame-select-border, var(--color-primary));
+  box-shadow: 0 0 0 2px var(--frame-bg, var(--color-surface)), 0 0 0 4px var(--frame-select-border, var(--color-primary));
+}

@@ -1,6 +1,8 @@
-import type { GardenPlant, SoilTile } from '../types';
+import type { GardenDecoration, GardenPlant, SoilTile } from '../types';
 import { TILE_SIZE } from '../components/garden3d/ProceduralMeshes';
 import { getPlantModelHeight } from './plantModel';
+import { getTileElevation } from './terrain';
+import { getDecorationCatalogEntry } from '../data/decorationCatalog';
 
 export interface CameraPose {
   position: [number, number, number];
@@ -18,6 +20,7 @@ export const BOUNDS_Y_MAX = 1.55;
 export const CAMERA_TARGET_Y = 0.65;
 export const CAMERA_ELEVATION_DEG = 30;
 export const BUILDING_CAMERA_ELEVATION_DEG = 38;
+export const OVERVIEW_CAMERA_ELEVATION_DEG = 38;
 export const CAMERA_AZIMUTH_RAD = Math.PI / 4;
 export const CAMERA_FOV_DEG = 40;
 export const DEFAULT_VIEWPORT_HEIGHT = 844;
@@ -36,6 +39,14 @@ export const BUILDING_SCREEN_CENTER_FRACTION = 0.39;
 export const CORNER_FIT_H_FILL = 0.88;
 export const CORNER_FIT_V_FILL = 0.52;
 export const CORNER_FIT_SAFETY = 1.03;
+
+export interface GardenCameraContent {
+  plants?: GardenPlant[];
+  decorations?: GardenDecoration[];
+  /** UI inset measured from the canvas bottom; excludes scene from the tool tray. */
+  bottomInsetPx?: number;
+  topInsetPx?: number;
+}
 
 type Vec3 = [number, number, number];
 
@@ -86,8 +97,24 @@ export function stepCameraPose(
   speed = CAMERA_LERP_SPEED,
 ): { position: Vec3; target: Vec3; converged: boolean } {
   const alpha = Math.min(1, delta * speed);
-  const nextPosition = lerpVec3(position, goal.position, alpha);
   const nextTarget = lerpVec3(target, goal.target, alpha);
+  const offset: Vec3 = [position[0] - target[0], position[1] - target[1], position[2] - target[2]];
+  const goalOffset: Vec3 = [goal.position[0] - goal.target[0], goal.position[1] - goal.target[1], goal.position[2] - goal.target[2]];
+  const radius = Math.hypot(...offset);
+  const goalRadius = Math.hypot(...goalOffset);
+  const direction = radius > 1e-9 ? offset : goalOffset;
+  const goalDirection = goalRadius > 1e-9 ? goalOffset : direction;
+  const azimuth = Math.atan2(direction[2], direction[0]);
+  const goalAzimuth = Math.atan2(goalDirection[2], goalDirection[0]);
+  const azimuthDelta = Math.atan2(Math.sin(goalAzimuth - azimuth), Math.cos(goalAzimuth - azimuth));
+  const elevation = Math.atan2(direction[1], Math.hypot(direction[0], direction[2]));
+  const goalElevation = Math.atan2(goalDirection[1], Math.hypot(goalDirection[0], goalDirection[2]));
+  const nextRadius = radius + (goalRadius - radius) * alpha;
+  const nextAzimuth = azimuth + azimuthDelta * alpha;
+  const nextElevation = elevation + (goalElevation - elevation) * alpha;
+  // A straight position lerp cuts through the target when the views face opposite
+  // directions. Orbit around the moving target while keeping its radius instead.
+  const nextPosition = vec3Add(nextTarget, vec3Scale(cameraBasis(nextAzimuth, nextElevation).n, nextRadius));
   const converged = cameraPoseReached(nextPosition, nextTarget, goal);
   return {
     position: converged ? goal.position : nextPosition,
@@ -107,16 +134,8 @@ export function resolveCameraFocusPlantId(
   if (options.viewingPlantId && plants.some((p) => p.id === options.viewingPlantId)) {
     return options.viewingPlantId;
   }
-  if (options.viewingObservationId) {
-    return null;
-  }
-  if (
-    options.lastAdmiredPlantId &&
-    plants.some((p) => p.id === options.lastAdmiredPlantId)
-  ) {
-    return options.lastAdmiredPlantId;
-  }
-  return plants[0]?.id ?? null;
+  // An overview never silently inherits the first or last admired plant.
+  return null;
 }
 
 export function getSoilBounds(
@@ -182,35 +201,65 @@ export function distanceForScreenHeight(
   return (objectHeight * viewportHeight) / (desiredScreenPx * visibleHeightAtUnitDistance);
 }
 
+function tileContentTop(tile: SoilTile, content: GardenCameraContent): number {
+  const plant = content.plants?.find((item) => item.tileId === tile.id);
+  const decoration = content.decorations?.find((item) => item.tileId === tile.id);
+  const legacyBounds = content.plants === undefined && content.decorations === undefined;
+  const itemHeight = Math.max(
+    plant ? getPlantModelHeight(plant) : 0,
+    decoration ? getDecorationCatalogEntry(decoration.type).height : 0,
+    legacyBounds ? BOUNDS_Y_MAX - SOIL_TOP_Y : 0.08,
+  );
+  return getTileElevation(tile) + SOIL_TOP_Y + itemHeight;
+}
+
+function sceneTargetY(soilTiles: SoilTile[], content: GardenCameraContent): number {
+  const highestPoint = Math.max(SOIL_TOP_Y, ...soilTiles.map((tile) => tileContentTop(tile, content)));
+  return Math.max(0.12, (GROUND_Y + highestPoint) / 2);
+}
+
 function gatherBoundsCorners(
   soilTiles: SoilTile[],
   addablePositions: { x: number; z: number }[],
   centerX: number,
   centerZ: number,
   targetY: number,
+  content: GardenCameraContent = {},
 ): Vec3[] {
-  const half = TILE_SIZE / 2;
-  const tileCenters = [
-    ...soilTiles.map((t) => ({ x: t.x * TILE_SIZE, z: t.z * TILE_SIZE })),
-    ...addablePositions.map((p) => ({ x: p.x * TILE_SIZE, z: p.z * TILE_SIZE })),
-  ];
-  const ys = [GROUND_Y, BOUNDS_Y_MAX];
   const corners: Vec3[] = [];
-
-  const centers =
-    tileCenters.length > 0 ? tileCenters : [{ x: centerX, z: centerZ }];
-
-  for (const { x, z } of centers) {
+  const tiles = soilTiles.length > 0 || addablePositions.length > 0
+    ? [...soilTiles, ...addablePositions.map((position) => ({ ...position, id: '' }))]
+    : [{ id: '', x: centerX / TILE_SIZE, z: centerZ / TILE_SIZE }];
+  for (const tile of tiles) {
+    const occupied = content.plants?.some((plant) => plant.tileId === tile.id)
+      || content.decorations?.some((decoration) => decoration.tileId === tile.id);
+    const half = occupied ? TILE_SIZE * 0.72 : TILE_SIZE / 2;
+    const top = tileContentTop(tile, content);
     for (const dx of [-half, half]) {
       for (const dz of [-half, half]) {
-        for (const y of ys) {
-          corners.push([x + dx - centerX, y - targetY, z + dz - centerZ]);
+        for (const y of [GROUND_Y, top]) {
+          corners.push([tile.x * TILE_SIZE + dx - centerX, y - targetY, tile.z * TILE_SIZE + dz - centerZ]);
         }
       }
     }
   }
-
   return corners;
+}
+
+function usableFrame(
+  viewportHeight: number,
+  content: GardenCameraContent,
+  defaultCenter: number,
+  defaultFill: number,
+): { center: number; fill: number } {
+  if (content.bottomInsetPx === undefined) return { center: defaultCenter, fill: defaultFill };
+  const top = Math.max(content.topInsetPx ?? 82, 12);
+  const bottom = Math.min(content.bottomInsetPx + 16, viewportHeight - top - 100);
+  const height = Math.max(100, viewportHeight - top - bottom);
+  return {
+    center: (top + height / 2) / viewportHeight,
+    fill: Math.min(0.86, height / viewportHeight * 0.9),
+  };
 }
 
 function fitDistanceForPerspectiveCorners(
@@ -219,11 +268,12 @@ function fitDistanceForPerspectiveCorners(
   elevationRad: number,
   aspect: number,
   fovDeg = CAMERA_FOV_DEG,
+  verticalFill = CORNER_FIT_V_FILL,
 ): number {
   const { n, right, up } = cameraBasis(azimuth, elevationRad);
   const vHalfTan = Math.tan(fovRadians(fovDeg) / 2);
   const hDenom = vHalfTan * Math.max(aspect, 0.35) * CORNER_FIT_H_FILL;
-  const vDenom = vHalfTan * CORNER_FIT_V_FILL;
+  const vDenom = vHalfTan * verticalFill;
 
   let required = TILE_SIZE * 2.5;
 
@@ -289,22 +339,26 @@ export function poseFromTarget(
 export function getBuildingCameraPose(
   soilTiles: SoilTile[],
   addablePositions: { x: number; z: number }[] = [],
-  _viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
+  viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
   viewportAspect = DEFAULT_VIEWPORT_WIDTH / DEFAULT_VIEWPORT_HEIGHT,
+  content: GardenCameraContent = {},
 ): CameraPose {
   const bounds = getSoilBounds(soilTiles, addablePositions);
   const cx = bounds.centerX * TILE_SIZE;
   const cz = bounds.centerZ * TILE_SIZE;
-  const targetY = 0.3;
+  const targetY = content.plants !== undefined ? sceneTargetY(soilTiles, content) : 0.3;
   const elevationRad = (BUILDING_CAMERA_ELEVATION_DEG * Math.PI) / 180;
   const aspect = Math.max(viewportAspect, 0.35);
 
-  const corners = gatherBoundsCorners(soilTiles, addablePositions, cx, cz, targetY);
+  const frame = usableFrame(viewportHeight, content, BUILDING_SCREEN_CENTER_FRACTION, CORNER_FIT_V_FILL);
+  const corners = gatherBoundsCorners(soilTiles, addablePositions, cx, cz, targetY, content);
   const distance = fitDistanceForPerspectiveCorners(
     corners,
     CAMERA_AZIMUTH_RAD,
     elevationRad,
     aspect,
+    CAMERA_FOV_DEG,
+    frame.fill,
   );
 
   const basePose = poseFromTarget(
@@ -318,7 +372,7 @@ export function getBuildingCameraPose(
   return applyVerticalScreenOffset(
     basePose,
     distance,
-    BUILDING_SCREEN_CENTER_FRACTION,
+    frame.center,
     CAMERA_AZIMUTH_RAD,
     elevationRad,
   );
@@ -331,14 +385,16 @@ export function getViewingCameraPose(
     viewportHeight?: number;
     viewportAspect?: number;
     memoryPanelOpen?: boolean;
-  } = {},
+  } & GardenCameraContent = {},
 ): CameraPose {
   const viewportHeight = options.viewportHeight ?? DEFAULT_VIEWPORT_HEIGHT;
   const memoryPanelOpen = options.memoryPanelOpen ?? false;
   const elevationRad = (CAMERA_ELEVATION_DEG * Math.PI) / 180;
-  const screenCenterFraction = memoryPanelOpen
-    ? MEMORY_SCREEN_CENTER_FRACTION
-    : HOME_SCREEN_CENTER_FRACTION;
+  const screenCenterFraction = usableFrame(
+    viewportHeight, options,
+    memoryPanelOpen ? MEMORY_SCREEN_CENTER_FRACTION : HOME_SCREEN_CENTER_FRACTION,
+    0.64,
+  ).center;
 
   const desiredFlowerPx = memoryPanelOpen
     ? Math.min(
@@ -367,16 +423,19 @@ export function getViewingCameraPose(
     const bounds = getSoilBounds(soilTiles);
     const cx = bounds.centerX * TILE_SIZE;
     const cz = bounds.centerZ * TILE_SIZE;
-    const tileSpan = Math.max(
-      (bounds.maxX - bounds.minX + 1) * TILE_SIZE,
-      (bounds.maxZ - bounds.minZ + 1) * TILE_SIZE,
-      TILE_SIZE * 2.5,
+    const targetY = sceneTargetY(soilTiles, options);
+    const overviewElevation = OVERVIEW_CAMERA_ELEVATION_DEG * Math.PI / 180;
+    const frame = usableFrame(viewportHeight, options, HOME_SCREEN_CENTER_FRACTION, 0.64);
+    const corners = gatherBoundsCorners(soilTiles, [], cx, cz, targetY, options);
+    const distance = fitDistanceForPerspectiveCorners(
+      corners, CAMERA_AZIMUTH_RAD, overviewElevation,
+      options.viewportAspect ?? DEFAULT_VIEWPORT_WIDTH / DEFAULT_VIEWPORT_HEIGHT,
+      CAMERA_FOV_DEG, frame.fill,
     );
-    const distance = Math.max(
-      distanceForScreenHeight(FLOWER_HEIGHT, desiredFlowerPx, viewportHeight),
-      tileSpan * 1.1,
+    return applyVerticalScreenOffset(
+      poseFromTarget(cx, targetY, cz, distance, CAMERA_AZIMUTH_RAD, overviewElevation),
+      distance, frame.center, CAMERA_AZIMUTH_RAD, overviewElevation,
     );
-    return offsetPose(poseFromTarget(cx, CAMERA_TARGET_Y, cz, distance), distance);
   }
 
   const tile = soilTiles.find((t) => t.id === focusPlant.tileId);
@@ -390,7 +449,7 @@ export function getViewingCameraPose(
   const px = tile.x * TILE_SIZE;
   const pz = tile.z * TILE_SIZE;
   const flowerHeight = getPlantModelHeight(focusPlant);
-  const cameraTargetY = Math.min(
+  const cameraTargetY = getTileElevation(tile) + Math.min(
     CAMERA_TARGET_Y,
     SOIL_TOP_Y + flowerHeight * 0.42,
   );
@@ -412,7 +471,7 @@ export function getCameraOrbitLimits(
     viewportHeight?: number;
     viewportAspect?: number;
     memoryPanelOpen?: boolean;
-  } = {},
+  } & GardenCameraContent = {},
 ): { minDistance: number; maxDistance: number } {
   const viewportHeight = options.viewportHeight ?? DEFAULT_VIEWPORT_HEIGHT;
   const viewportAspect =
@@ -424,6 +483,7 @@ export function getCameraOrbitLimits(
       addablePositions,
       viewportHeight,
       viewportAspect,
+      options,
     );
     const dist = vec3Distance(pose.position, pose.target);
     return {
@@ -435,11 +495,12 @@ export function getCameraOrbitLimits(
   const pose = getViewingCameraPose(soilTiles, null, {
     viewportHeight,
     viewportAspect,
+    ...options,
     memoryPanelOpen: options.memoryPanelOpen,
   });
   const dist = vec3Distance(pose.position, pose.target);
   return {
-    minDistance: Math.max(dist * 0.55, 2),
+    minDistance: 1.3,
     maxDistance: dist * 1.85,
   };
 }

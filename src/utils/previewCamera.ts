@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GardenModelType } from '../types';
 import { COSMOS_BLOSSOM_CENTER_Y, COSMOS_HEIGHT } from '../components/garden3d/cosmosGeometry';
 import { MODEL_HEIGHTS } from './plantModel';
+import { PLANT_SHAPES } from '../data/plantShapes';
 import { PANSY_BLOSSOM_WIDTH, PANSY_FLOWER_CENTER_Y, PANSY_HEIGHT } from '../components/garden3d/pansyGeometry';
 
 /** Catalog card preview frame (CSS px). */
@@ -19,6 +20,7 @@ export interface PreviewModelBounds {
 }
 
 export const PREVIEW_MODEL_BOUNDS: Record<GardenModelType, PreviewModelBounds> = {
+  ...Object.fromEntries(Object.entries(PLANT_SHAPES).map(([modelType, shape]) => [modelType, { width: shape.width, height: shape.height, centerY: shape.height / 2 }])) as Record<GardenModelType, PreviewModelBounds>,
   tulip: { width: 0.52, height: MODEL_HEIGHTS.tulip, centerY: 0.62 },
   cosmos: { width: 0.78, height: COSMOS_HEIGHT, centerY: COSMOS_BLOSSOM_CENTER_Y },
   pansy: { width: PANSY_BLOSSOM_WIDTH, height: PANSY_HEIGHT, centerY: PANSY_FLOWER_CENTER_Y },
@@ -26,6 +28,7 @@ export const PREVIEW_MODEL_BOUNDS: Record<GardenModelType, PreviewModelBounds> =
 
 /** Fixed 3/4 azimuth for catalog readability (no idle spin). */
 export const PREVIEW_YAW: Record<GardenModelType, number> = {
+  ...Object.fromEntries(Object.keys(PLANT_SHAPES).map((modelType) => [modelType, 0.35])) as Record<GardenModelType, number>,
   tulip: 0.55,
   cosmos: 0.45,
   pansy: 0,

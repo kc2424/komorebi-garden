@@ -10,7 +10,9 @@ const observation: PlantObservation = {
   commonNameJa: '赤いチューリップ',
   scientificName: 'Tulipa gesneriana',
   familyName: 'ユリ科',
+  trait: '',
   color: 'red',
+  imageRef: 'img-obs-journal-1',
   imageDataUrl: 'data:image/jpeg;base64,journal',
   takenAt: '2026-08-15T00:00:00.000Z',
   memo: '',
@@ -22,12 +24,20 @@ const observation: PlantObservation = {
 function mockStore(): GardenStore {
   return {
     state: {
-      version: 2,
+      version: 3,
       soilTiles: [],
       plants: [],
       stashedPlants: [],
       observations: [observation],
       tulipUnlocked: true,
+      sync: {
+        revision: 0,
+        lastSyncedRevision: null,
+        pendingChanges: false,
+        lastSyncAt: null,
+        lastError: null,
+        tombstoneRevision: null,
+      },
     },
   } as unknown as GardenStore;
 }

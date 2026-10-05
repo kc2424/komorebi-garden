@@ -13,7 +13,11 @@ export interface PendingPlacement {
 }
 
 export function getEmptySoilTiles(state: GardenState): SoilTile[] {
-  return state.soilTiles.filter((tile) => !getPlantOnTile(state, tile.id));
+  return state.soilTiles.filter(
+    (tile) =>
+      !getPlantOnTile(state, tile.id) &&
+      !state.decorations.some((decoration) => decoration.tileId === tile.id),
+  );
 }
 
 export function canSelectFlowerModel(modelType: GardenModelType, tulipUnlocked: boolean): boolean {
@@ -28,7 +32,10 @@ export function canBeginPendingPlacement(
 ): boolean {
   if (!canSelectFlowerModel(modelType, tulipUnlocked)) return false;
   if (!state.soilTiles.some((t) => t.id === tileId)) return false;
-  if (getPlantOnTile(state, tileId)) return false;
+  if (
+    getPlantOnTile(state, tileId) ||
+    state.decorations.some((decoration) => decoration.tileId === tileId)
+  ) return false;
   return true;
 }
 

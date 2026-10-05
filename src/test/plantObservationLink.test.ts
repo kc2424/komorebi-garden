@@ -16,7 +16,9 @@ const baseObservation = (id: string): PlantObservation => ({
   commonNameJa: 'チューリップ',
   scientificName: 'Tulipa gesneriana',
   familyName: 'ユリ科',
+  trait: '',
   color: 'red',
+  imageRef: `img-${id}`,
   imageDataUrl: 'data:image/jpeg;base64,x',
   takenAt: '2026-01-01',
   memo: '',
@@ -67,7 +69,7 @@ describe('plantObservationLink', () => {
 });
 
 describe('observation link persistence', () => {
-  it('stores optional observationIds on new plants without breaking old saves', () => {
+  it('stores optional observationIds on new plants without breaking old saves', async () => {
     let state = createEmptyState();
     state = {
       ...state,
@@ -88,9 +90,9 @@ describe('observation link persistence', () => {
       ...state,
       plants: [legacyPlant],
     };
-    const result = saveState(legacyState);
+    const result = await saveState(legacyState);
     expect(result.ok).toBe(true);
-    const loaded = loadState();
+    const loaded = await loadState();
     expect(loaded.state.plants[0].observationIds).toBeUndefined();
   });
 

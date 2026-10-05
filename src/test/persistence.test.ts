@@ -4,6 +4,7 @@ import {
   loadState,
   saveState,
 } from '../storage/persistence';
+import { getLocalDb, GUEST_SCOPE, resetLocalDbForTests } from '../storage/localDb';
 import {
   saveObservationAction,
   addSoilTileAction,
@@ -13,19 +14,24 @@ import {
   getAddableSoilPositions,
 } from '../storage/gardenActions';
 
-describe('persistence v2', () => {
-  beforeEach(() => {
+describe('persistence v3', () => {
+  beforeEach(async () => {
+    resetLocalDbForTests();
     localStorage.clear();
+    const db = await getLocalDb();
+    await db.delete('garden', GUEST_SCOPE);
   });
 
-  it('creates empty state with default 3x3 soil', () => {
+  it('creates empty state with default 5x5 grass', () => {
     const state = createEmptyState();
-    expect(state.version).toBe(2);
-    expect(state.soilTiles).toHaveLength(9);
+    expect(state.version).toBe(3);
+    expect(state.soilTiles).toHaveLength(25);
+    expect(state.soilTiles.every((tile) => tile.surface === 'grass')).toBe(true);
     expect(state.tulipUnlocked).toBe(false);
+    expect(state.sync.revision).toBe(0);
   });
 
-  it('saves and loads v2 state', () => {
+  it('saves and loads v3 state with separated images', async () => {
     const state = createEmptyState();
     const { nextState } = saveObservationAction(state, {
       plantType: 'tulip',
@@ -34,18 +40,20 @@ describe('persistence v2', () => {
       familyName: 'ユリ科',
       color: 'red',
       imageDataUrl: 'data:image/jpeg;base64,abc',
+      trait: '',
       isSample: true,
       identificationSource: 'sample',
     });
-    const result = saveState(nextState);
+    const result = await saveState(nextState);
     expect(result.ok).toBe(true);
 
-    const loaded = loadState();
+    const loaded = await loadState();
     expect(loaded.state.observations).toHaveLength(1);
     expect(loaded.state.tulipUnlocked).toBe(true);
+    expect(loaded.state.observations[0].imageDataUrl).toBe('data:image/jpeg;base64,abc');
   });
 
-  it('migrates v1 observations without losing data', () => {
+  it('migrates v1 observations without losing data', async () => {
     localStorage.setItem(
       'komorebi-garden-v1',
       JSON.stringify({
@@ -72,7 +80,7 @@ describe('persistence v2', () => {
       }),
     );
 
-    const loaded = loadState();
+    const loaded = await loadState();
     expect(loaded.migrated).toBe(true);
     expect(loaded.state.observations).toHaveLength(1);
     expect(loaded.state.observations[0].commonNameJa).toBe('ソメイヨシノ');
@@ -80,18 +88,17 @@ describe('persistence v2', () => {
     expect(localStorage.getItem('komorebi-garden-v1')).toBeTruthy();
   });
 
-  it('reports save failure without false success', () => {
-    const setItem = vi.spyOn(Storage.prototype, 'setItem');
-    setItem.mockImplementation(() => {
-      throw new DOMException('QuotaExceededError');
-    });
-    const result = saveState(createEmptyState());
+  it('reports save failure without false success', async () => {
+    const dbModule = await import('../storage/localDb');
+    const db = await dbModule.getLocalDb();
+    const put = vi.spyOn(db, 'put').mockRejectedValue(new DOMException('QuotaExceededError'));
+    const result = await saveState(createEmptyState());
     expect(result.ok).toBe(false);
-    setItem.mockRestore();
+    put.mockRestore();
   });
 });
 
-describe('gardenActions v2', () => {
+describe('gardenActions v3', () => {
   it('unlocks tulip on first tulip observation', () => {
     const state = createEmptyState();
     const { nextState } = saveObservationAction(state, {
@@ -101,10 +108,12 @@ describe('gardenActions v2', () => {
       familyName: 'ユリ科',
       color: 'yellow',
       imageDataUrl: 'data:image/jpeg;base64,x',
+      trait: '',
       isSample: false,
       identificationSource: 'manual',
     });
     expect(nextState.tulipUnlocked).toBe(true);
+    expect(nextState.sync.pendingChanges).toBe(true);
   });
 
   it('does not unlock tulip for other plants', () => {
@@ -116,6 +125,7 @@ describe('gardenActions v2', () => {
       familyName: 'アジサイ科',
       color: null,
       imageDataUrl: 'data:image/jpeg;base64,x',
+      trait: '',
       isSample: false,
       identificationSource: 'manual',
     });
@@ -164,7 +174,9 @@ describe('gardenActions v2', () => {
         scientificName: 'Tulipa gesneriana',
         familyName: 'ユリ科',
         color: 'red',
+        imageRef: 'img-obs-1',
         imageDataUrl: 'data:image/jpeg;base64,x',
+        trait: '',
         takenAt: '2026-01-01',
         memo: '',
         isSample: false,

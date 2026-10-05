@@ -1,13 +1,10 @@
 import type { GardenModelType, GardenPlant, TulipColor } from '../types';
-import { COSMOS_HEIGHT } from '../components/garden3d/cosmosGeometry';
-import { PANSY_HEIGHT } from '../components/garden3d/pansyGeometry';
+import { PLANT_SHAPES } from '../data/plantShapes';
 import { getFlowerCatalogEntry } from '../data/flowerCatalog';
 
-export const MODEL_HEIGHTS: Record<GardenModelType, number> = {
-  tulip: 1.4,
-  cosmos: COSMOS_HEIGHT,
-  pansy: PANSY_HEIGHT,
-};
+export const MODEL_HEIGHTS = Object.fromEntries(
+  Object.entries(PLANT_SHAPES).map(([modelType, shape]) => [modelType, shape.height]),
+) as Record<GardenModelType, number>;
 
 export function resolvePlantModelType(plant: Pick<GardenPlant, 'modelType'>): GardenModelType {
   return plant.modelType ?? 'tulip';
@@ -32,7 +29,11 @@ export function normalizeGardenPlant(plant: GardenPlant): GardenPlant {
 }
 
 export function defaultColorForModel(modelType: GardenModelType): TulipColor {
-  if (modelType === 'tulip') return 'red';
+  if (modelType === 'tulip' || modelType === 'poppy') return 'red';
+  if (modelType === 'daisy' || modelType === 'lily') return 'white';
+  if (modelType === 'sunflower' || modelType === 'daffodil') return 'yellow';
+  if (modelType === 'lavender' || modelType === 'allium' || modelType === 'bluebell') return 'purple';
+  if (modelType === 'marigold' || modelType === 'maple') return 'orange';
   return 'pink';
 }
 

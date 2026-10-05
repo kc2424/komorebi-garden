@@ -1,5 +1,17 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, beforeEach } from 'vitest';
+import 'fake-indexeddb/auto';
+import { resetLocalDbForTests } from '../storage/localDb';
+
+beforeEach(async () => {
+  resetLocalDbForTests();
+  await new Promise<void>((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('komorebi-garden-db');
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => resolve();
+  });
+});
 
 Object.defineProperty(window, 'scrollTo', {
   value: () => {},

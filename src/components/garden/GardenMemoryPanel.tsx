@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { GardenStore } from '../../hooks/useGardenStore';
 import type { PlantObservation } from '../../types';
-import { getPlantDisplayName } from '../../data/flowerCatalog';
-import { getModelPreviewLabel, resolvePlantModelType } from '../../utils/plantModel';
+import { getFlowerCatalogEntry, getPlantDisplayName, getPlantThumbnailUrl } from '../../data/flowerCatalog';
+import { resolvePlantModelType } from '../../utils/plantModel';
 import {
   getLinkedObservations,
   getNavigableObservations,
@@ -12,6 +12,7 @@ import styles from './GardenMemoryPanel.module.css';
 
 interface GardenMemoryPanelProps {
   store: GardenStore;
+  onCompactHeightChange?: (height: number | undefined) => void;
 }
 
 function formatDate(iso: string): string {
@@ -34,7 +35,8 @@ function sourceLabel(source: PlantObservation['identificationSource']): string {
   }[source];
 }
 
-export function GardenMemoryPanel({ store }: GardenMemoryPanelProps) {
+export function GardenMemoryPanel({ store, onCompactHeightChange }: GardenMemoryPanelProps) {
+  const panelRef = useRef<HTMLElement>(null);
   const {
     state,
     viewingPlantId,
@@ -69,6 +71,27 @@ export function GardenMemoryPanel({ store }: GardenMemoryPanelProps) {
     }
     return null;
   }, [viewingObservationId, state.observations, viewingPlant, linkedObservations]);
+
+  const isPlantCard = Boolean(viewingPlant && !currentObservation);
+  const catalogEntry = viewingPlant
+    ? getFlowerCatalogEntry(resolvePlantModelType(viewingPlant))
+    : null;
+
+  useEffect(() => {
+    if (!isPlantCard || !panelRef.current) {
+      onCompactHeightChange?.(undefined);
+      return;
+    }
+    const panel = panelRef.current;
+    const measure = () => onCompactHeightChange?.(Math.ceil(panel.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      onCompactHeightChange?.(undefined);
+    };
+  }, [isPlantCard, onCompactHeightChange]);
 
   const currentLinkStatus = currentObservation
     ? resolveMemoryNavigationTarget(
@@ -141,15 +164,7 @@ export function GardenMemoryPanel({ store }: GardenMemoryPanelProps) {
 
   if (!viewingPlantId && !viewingObservationId) return null;
 
-  const modelPreviewNote =
-    viewingPlant && !currentObservation
-      ? getModelPreviewLabel(resolvePlantModelType(viewingPlant))
-      : '';
-
   const linkNote = (() => {
-    if (modelPreviewNote) {
-      return `${getPlantDisplayName(viewingPlant!)}の${modelPreviewNote}`;
-    }
     if (currentObservation?.plantType === 'other') {
       return 'この植物は庭には植えられませんが、観察記録として残ります。';
     }
@@ -164,9 +179,10 @@ export function GardenMemoryPanel({ store }: GardenMemoryPanelProps) {
 
   return (
     <section
-      className={styles.panel}
+      ref={panelRef}
+      className={`${styles.panel} ${isPlantCard ? styles.compactPanel : ''}`}
       role="dialog"
-      aria-label="花の思い出"
+      aria-label={isPlantCard ? "植物の紹介" : "花の思い出"}
       aria-modal="false"
     >
       <div className={styles.handle} aria-hidden="true" />
@@ -236,15 +252,18 @@ export function GardenMemoryPanel({ store }: GardenMemoryPanelProps) {
               </div>
             )}
           </>
-        ) : viewingPlant ? (
-          <>
-            {modelPreviewNote && (
-              <p className={styles.unlinkedNote}>{linkNote}</p>
-            )}
-            {!modelPreviewNote && (
-              <p className={styles.empty}>記録を選んで思い出を見られます。</p>
-            )}
-          </>
+        ) : viewingPlant && catalogEntry ? (
+          <div className={styles.plantInfo}>
+            <img
+              src={getPlantThumbnailUrl(catalogEntry.modelType, viewingPlant.color)}
+              alt=""
+              className={styles.plantThumbnail}
+            />
+            <div>
+              <p className={styles.scientificName}>{catalogEntry.scientificName}</p>
+              <p className={styles.description}>{catalogEntry.description}</p>
+            </div>
+          </div>
         ) : (
           <p className={styles.empty}>
             記録を選んで思い出を見られます。

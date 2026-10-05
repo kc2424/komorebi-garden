@@ -1,16 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { FlowerCatalogSheet } from '../components/garden/FlowerCatalogSheet';
 import type { GardenPlant } from '../types';
-
-const previewSlotsSpy = vi.fn();
-
-vi.mock('../components/garden/FlowerPreviewCanvas', () => ({
-  FlowerPreviewCanvas: ({ slots }: { slots: unknown[] }) => {
-    previewSlotsSpy(slots);
-    return <div data-testid="flower-preview-canvas" data-slot-count={slots.length} />;
-  },
-}));
 
 const stashedCosmos: GardenPlant = {
   id: 'stash-cosmos-1',
@@ -21,10 +12,6 @@ const stashedCosmos: GardenPlant = {
 };
 
 describe('FlowerCatalogSheet stash restoration', () => {
-  beforeEach(() => {
-    previewSlotsSpy.mockClear();
-  });
-
   it('shows compact cosmos preview when restoring a stashed plant, not the full catalog', () => {
     render(
       <FlowerCatalogSheet
@@ -42,18 +29,14 @@ describe('FlowerCatalogSheet stash restoration', () => {
       />,
     );
 
-    expect(screen.getByTestId('flower-preview-canvas')).toHaveAttribute('data-slot-count', '1');
+    expect(document.querySelectorAll('img')).toHaveLength(1);
+    expect(document.querySelector('canvas')).toBeNull();
     expect(screen.getByText('コスモス')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /花を選び直す/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'チューリップ' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'パンジー' })).not.toBeInTheDocument();
 
-    expect(previewSlotsSpy).toHaveBeenCalledWith([
-      expect.objectContaining({
-        modelType: 'cosmos',
-        color: 'pink',
-      }),
-    ]);
+
   });
 
   it('lists stashed plants in the expanded catalog disclosure', () => {
@@ -78,4 +61,17 @@ describe('FlowerCatalogSheet stash restoration', () => {
     expect(stashButton).toBeInTheDocument();
     expect(stashButton).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it('filters and searches twenty static plant previews without creating WebGL canvases', () => {
+    render(<FlowerCatalogSheet expanded selectedModelType={null} displayModelType={null} displayColor="red" plantColor="red" tulipUnlocked={false} onSelect={vi.fn()} onReselect={vi.fn()} />);
+    expect(document.querySelectorAll('img')).toHaveLength(20);
+    expect(document.querySelector('canvas')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '木' }));
+    expect(document.querySelectorAll('img')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'すべて' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: '植物を探す' }), { target: { value: 'ちゅーりっぷ' } });
+    expect(screen.getByRole('button', { name: 'チューリップ' })).toBeInTheDocument();
+    expect(document.querySelectorAll('img')).toHaveLength(1);
+  });
+
 });

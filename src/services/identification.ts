@@ -1,16 +1,16 @@
 import type { IdentificationResult } from '../types';
 import { manualCandidates, withUnknownOption } from '../data/identificationCandidates';
 import { getSamplePhoto, getTulipSampleCandidates } from '../data/sampleIdentification';
+import {
+  IDENTIFICATION_CONNECTION_ERROR_MESSAGE,
+  IDENTIFICATION_NOT_CONFIGURED_MESSAGE,
+  requestIdentificationHealth,
+  requestIdentificationIdentify,
+} from '../platform/identificationApi';
 
 export async function checkIdentificationHealth(): Promise<boolean> {
-  try {
-    const res = await fetch('/api/health');
-    if (!res.ok) return false;
-    const json = (await res.json()) as { plantnetConfigured?: boolean };
-    return Boolean(json.plantnetConfigured);
-  } catch {
-    return false;
-  }
+  const result = await requestIdentificationHealth();
+  return result.configured;
 }
 
 export async function identifyPlantImage(
@@ -37,23 +37,29 @@ export async function identifyPlantImage(
     };
   }
 
-  try {
-    const res = await fetch('/api/identify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageDataUrl }),
-    });
-    const json = (await res.json()) as IdentificationResult;
-    if (json.status === 'ok' && json.candidates.length > 0) {
-      return { ...json, candidates: withUnknownOption(json.candidates) };
-    }
-    return json;
-  } catch {
+  const result = await requestIdentificationIdentify(imageDataUrl);
+
+  if (result.notConfigured) {
     return {
       status: 'error',
       candidates: manualCandidates(),
-      message: '識別サービスに接続できませんでした。手動で選んで保存できます。',
+      message: IDENTIFICATION_NOT_CONFIGURED_MESSAGE,
       provider: 'plantnet',
     };
   }
+
+  if (!result.ok || !result.data) {
+    return {
+      status: 'error',
+      candidates: manualCandidates(),
+      message: IDENTIFICATION_CONNECTION_ERROR_MESSAGE,
+      provider: 'plantnet',
+    };
+  }
+
+  const json = result.data;
+  if (json.status === 'ok' && json.candidates.length > 0) {
+    return { ...json, candidates: withUnknownOption(json.candidates) };
+  }
+  return json;
 }

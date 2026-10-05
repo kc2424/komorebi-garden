@@ -6,6 +6,8 @@ import styles from './CompleteScreen.module.css';
 interface CompleteScreenProps {
   result: RegistrationResult;
   observation: PlantObservation;
+  canPlantInGarden?: boolean;
+  onPlantInGarden?: () => void;
   onGoGarden: () => void;
   onViewRecord: () => void;
 }
@@ -25,6 +27,8 @@ function formatDate(iso: string): string {
 export function CompleteScreen({
   result,
   observation,
+  canPlantInGarden = false,
+  onPlantInGarden,
   onGoGarden,
   onViewRecord,
 }: CompleteScreenProps) {
@@ -44,12 +48,30 @@ export function CompleteScreen({
 
   const footer = (
     <>
-      <Button fullWidth onClick={onGoGarden}>
-        庭を見る
-      </Button>
-      <Button variant="secondary" fullWidth onClick={onViewRecord}>
-        記録を見る
-      </Button>
+      {canPlantInGarden && onPlantInGarden ? (
+        <Button fullWidth onClick={onPlantInGarden}>
+          この花を庭に植える
+        </Button>
+      ) : null}
+      {canPlantInGarden ? (
+        <>
+          <Button fullWidth variant="secondary" onClick={onGoGarden}>
+            庭を見る
+          </Button>
+          <Button variant="secondary" fullWidth onClick={onViewRecord}>
+            記録を見る
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button fullWidth onClick={onViewRecord}>
+            記録を見る
+          </Button>
+          <Button variant="secondary" fullWidth onClick={onGoGarden}>
+            庭を見る
+          </Button>
+        </>
+      )}
     </>
   );
 

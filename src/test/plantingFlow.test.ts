@@ -26,14 +26,14 @@ describe('plantingFlow helpers', () => {
     expect(empty.length).toBe(state.soilTiles.length - 1);
   });
 
-  it('allows cosmos and pansy without tulip unlock', () => {
+  it('allows all three sandbox flowers without tulip unlock', () => {
     const state = createEmptyState();
     expect(canSelectFlowerModel('cosmos', false)).toBe(true);
     expect(canSelectFlowerModel('pansy', false)).toBe(true);
-    expect(canSelectFlowerModel('tulip', false)).toBe(false);
+    expect(canSelectFlowerModel('tulip', false)).toBe(true);
     const tile = state.soilTiles[0];
     expect(canBeginPendingPlacement(state, tile.id, 'cosmos', false)).toBe(true);
-    expect(canBeginPendingPlacement(state, tile.id, 'tulip', false)).toBe(false);
+    expect(canBeginPendingPlacement(state, tile.id, 'tulip', false)).toBe(true);
   });
 
   it('cycles empty tile selection for keyboard navigation', () => {
@@ -66,7 +66,7 @@ describe('plantingFlow helpers', () => {
 });
 
 describe('flower model persistence', () => {
-  it('keeps unspecified modelType as tulip on read', () => {
+  it('keeps unspecified modelType as tulip on read', async () => {
     const state = createEmptyState();
     const legacyPlant = {
       id: 'legacy',
@@ -79,19 +79,19 @@ describe('flower model persistence', () => {
       tulipUnlocked: true,
       plants: [legacyPlant],
     };
-    saveState(saved);
-    const loaded = loadState();
+    await saveState(saved);
+    const loaded = await loadState();
     expect(resolvePlantModelType(loaded.state.plants[0])).toBe('tulip');
     expect(loaded.state.plants[0].modelType).toBeUndefined();
   });
 
-  it('round-trips cosmos and pansy through save/load', () => {
+  it('round-trips cosmos and pansy through save/load', async () => {
     let state = createEmptyState();
     const [a, b] = state.soilTiles;
     state = plantFlowerAction(state, a.id, 'cosmos', 'pink');
     state = plantFlowerAction(state, b.id, 'pansy', 'purple');
-    saveState(state);
-    const loaded = loadState();
+    await saveState(state);
+    const loaded = await loadState();
     expect(loaded.state.plants.map((p) => resolvePlantModelType(p))).toEqual(['cosmos', 'pansy']);
   });
 
@@ -109,7 +109,7 @@ describe('flower model persistence', () => {
     expect(state.plants[0].tileId).toBe(target.id);
   });
 
-  it('strips observation links from non-tulip models on normalize', () => {
+  it('strips observation links from non-tulip models on normalize', async () => {
     let state = createEmptyState();
     state = {
       ...state,
@@ -120,7 +120,9 @@ describe('flower model persistence', () => {
         commonNameJa: 'チューリップ',
         scientificName: 'Tulipa gesneriana',
         familyName: 'ユリ科',
+        trait: '',
         color: 'red',
+        imageRef: 'img-obs-1',
         imageDataUrl: 'data:image/jpeg;base64,x',
         takenAt: '2026-01-01',
         memo: '',
@@ -138,8 +140,8 @@ describe('flower model persistence', () => {
         observationIds: ['obs-1'],
       }],
     };
-    saveState(state);
-    const loaded = loadState();
+    await saveState(state);
+    const loaded = await loadState();
     expect(loaded.state.plants[0].observationIds).toBeUndefined();
   });
 
@@ -154,7 +156,9 @@ describe('flower model persistence', () => {
         commonNameJa: 'チューリップ',
         scientificName: 'Tulipa gesneriana',
         familyName: 'ユリ科',
+        trait: '',
         color: 'red',
+        imageRef: 'img-obs-1',
         imageDataUrl: 'data:image/jpeg;base64,x',
         takenAt: '2026-01-01',
         memo: '',

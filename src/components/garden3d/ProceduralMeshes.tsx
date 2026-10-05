@@ -1,10 +1,19 @@
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
-import type { GardenModelType, GardenPlant, TulipColor } from '../../types';
+import type {
+  GardenDecoration,
+  GardenModelType,
+  GardenPlant,
+  TileSurface,
+  TulipColor,
+} from '../../types';
 import { tulipColorHex } from '../../data/tulip';
 import { resolvePlantModelType } from '../../utils/plantModel';
 import { PREVIEW_YAW } from '../../utils/previewCamera';
+import { getTileElevation } from '../../utils/terrain';
+import { LightweightPlantMesh } from './LightweightPlants';
+import { GardenDecorationMesh as LightweightDecorationMesh } from './GardenDecorations';
 import {
   getCosmosCenterGeometry,
   getCosmosLeafGeometry,
@@ -22,15 +31,16 @@ import {
   PANSY_FLOWER_CENTER_Y,
 } from './pansyGeometry';
 import {
-  createEarthMaterial,
   createGhostMaterial,
-  createGrassMaterial,
   createLeafMaterial,
   createPetalMaterial,
   createStemMaterial,
-  createTurfMaterial,
 } from './proceduralMaterials';
 import { getGrassTuftsGeometry, getTurfCapGeometry, TURF_RING_Y } from './terrainGeometry';
+import {
+  getEarthMaterial, getGrassMaterial, getSoilColumnGeometry,
+  getTileSurfaceGeometry, getTileSurfaceMaterial, getTurfMaterial,
+} from './surfaceGeometry';
 import {
   getTulipLeafGeometry,
   getTulipPetalGeometry,
@@ -39,12 +49,15 @@ import {
 } from './tulipGeometry';
 
 const TILE_SIZE = 1;
-const SOIL_WIDTH = 0.98;
-const SOIL_HEIGHT = 0.34;
-const SOIL_RADIUS = 0.07;
-const SOIL_CENTER_Y = -0.13;
 const SOIL_TOP_Y = 0.06;
 const TULIP_ROOT_Y = SOIL_TOP_Y;
+const tileSelectionGeometry = new THREE.RingGeometry(0.2, 0.28, 32);
+const tileSelectionMaterial = new THREE.MeshBasicMaterial({
+  color: '#e8d4a0', transparent: true, opacity: 0.425, depthWrite: false,
+});
+const tileRemovalMaterial = new THREE.MeshBasicMaterial({
+  color: '#d4a0a8', transparent: true, opacity: 0.357, depthWrite: false,
+});
 
 /** 3D blossom tint — saved enum unchanged; pink maps to warm coral for rendering. */
 function tulipRenderColorHex(color: TulipColor): string {
@@ -55,61 +68,63 @@ function tulipRenderColorHex(color: TulipColor): string {
 interface SoilTileMeshProps {
   x: number;
   z: number;
+  surface?: TileSurface;
+  height?: number;
   selected?: boolean;
   highlight?: 'add' | 'remove' | 'plant' | 'move' | null;
   onClick?: () => void;
 }
 
-export function SoilTileMesh({ x, z, selected, highlight, onClick }: SoilTileMeshProps) {
-  const groupRef = useRef<THREE.Group>(null);
-
-  const earthMaterial = useMemo(() => createEarthMaterial(), []);
-  const turfMaterial = useMemo(() => createTurfMaterial(), []);
-  const grassMaterial = useMemo(() => createGrassMaterial(), []);
-  const turfGeometry = useMemo(() => getTurfCapGeometry(), []);
-  const grassGeometry = useMemo(() => getGrassTuftsGeometry(x, z), [x, z]);
-
-  const showRing =
-    selected ||
-    highlight === 'add' ||
-    highlight === 'plant' ||
-    highlight === 'move' ||
-    highlight === 'remove';
-
-  const ringColor =
-    highlight === 'remove'
-      ? '#d4a0a8'
-      : highlight === 'add'
-        ? '#e8d4a0'
-        : '#e8d4a0';
-  const ringOpacity = highlight === 'remove' ? 0.42 : 0.5;
+export function SoilTileMesh({
+  x,
+  z,
+  surface = 'grass',
+  height = 0,
+  selected,
+  highlight,
+  onClick,
+}: SoilTileMeshProps) {
+  const elevation = getTileElevation({ height });
+  const showRing = selected || highlight != null;
 
   return (
-    <group ref={groupRef} position={[x * TILE_SIZE, 0, z * TILE_SIZE]}>
-      <RoundedBox
-        args={[SOIL_WIDTH, SOIL_HEIGHT, SOIL_WIDTH]}
-        radius={SOIL_RADIUS}
-        smoothness={6}
-        position={[0, SOIL_CENTER_Y, 0]}
-        material={earthMaterial}
+    <group
+      position={[x * TILE_SIZE, 0, z * TILE_SIZE]}
+      dispose={null}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
+    >
+      <mesh
+        geometry={getSoilColumnGeometry(height)}
+        material={getEarthMaterial()}
         castShadow
         receiveShadow
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick?.();
-        }}
       />
-
-      <mesh geometry={turfGeometry} material={turfMaterial} castShadow receiveShadow />
-
-      <mesh geometry={grassGeometry} material={grassMaterial} />
-
-      {showRing && (
-        <mesh position={[0, TURF_RING_Y, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.2, 0.28, 32]} />
-          <meshBasicMaterial color={ringColor} transparent opacity={ringOpacity * 0.85} />
-        </mesh>
-      )}
+      <group position={[0, elevation, 0]}>
+        {surface === 'grass' ? (
+          <>
+            <mesh geometry={getTurfCapGeometry()} material={getTurfMaterial()} castShadow receiveShadow />
+            <mesh geometry={getGrassTuftsGeometry(x, z)} material={getGrassMaterial()} />
+          </>
+        ) : (
+          <mesh
+            geometry={getTileSurfaceGeometry(surface)}
+            material={getTileSurfaceMaterial(surface)}
+            castShadow
+            receiveShadow
+          />
+        )}
+        {showRing && (
+          <mesh
+            geometry={tileSelectionGeometry}
+            material={highlight === 'remove' ? tileRemovalMaterial : tileSelectionMaterial}
+            position={[0, TURF_RING_Y, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+          />
+        )}
+      </group>
     </group>
   );
 }
@@ -319,25 +334,7 @@ interface GardenPlantMeshProps {
 }
 
 export function GardenPlantMesh({ plant, selected, ghost, onClick }: GardenPlantMeshProps) {
-  const modelType = resolvePlantModelType(plant);
-  if (modelType === 'cosmos') {
-    return (
-      <CosmosMesh rotation={plant.rotation} selected={selected} ghost={ghost} onClick={onClick} />
-    );
-  }
-  if (modelType === 'pansy') {
-    return (
-      <PansyMesh rotation={plant.rotation} selected={selected} ghost={ghost} onClick={onClick} />
-    );
-  }
-  return (
-    <TulipMesh
-      color={plant.color}
-      rotation={plant.rotation}
-      selected={selected}
-      onClick={onClick}
-    />
-  );
+  return <LightweightPlantMesh modelType={resolvePlantModelType(plant)} color={plant.color} rotation={plant.rotation} selected={selected} ghost={ghost} onClick={onClick} />;
 }
 
 interface PreviewPlantMeshProps {
@@ -346,14 +343,21 @@ interface PreviewPlantMeshProps {
 }
 
 export function PreviewPlantMesh({ modelType, color }: PreviewPlantMeshProps) {
-  const yaw = PREVIEW_YAW[modelType];
-  if (modelType === 'cosmos') {
-    return <CosmosMesh rotation={yaw} />;
-  }
-  if (modelType === 'pansy') {
-    return <PansyMesh rotation={yaw} />;
-  }
-  return <TulipMesh color={color} rotation={yaw} />;
+  return <LightweightPlantMesh modelType={modelType} color={color} rotation={PREVIEW_YAW[modelType]} />;
+}
+
+export function GardenDecorationMesh({
+  decoration,
+  selected,
+  ghost,
+  onClick,
+}: {
+  decoration: Pick<GardenDecoration, 'type' | 'rotation'>;
+  selected?: boolean;
+  ghost?: boolean;
+  onClick?: () => void;
+}) {
+  return <LightweightDecorationMesh type={decoration.type} rotation={decoration.rotation} selected={selected} ghost={ghost} onClick={onClick} />;
 }
 
 export function GhostTileMarker({ x, z }: { x: number; z: number }) {

@@ -1,14 +1,34 @@
-import type { GardenModelType, GardenState, GardenPlant, SaveResult, SoilTile } from '../types';
+import type {
+  GardenDecoration,
+  GardenState,
+  GardenPlant,
+  SaveResult,
+  SoilTile,
+  TileSurface,
+} from '../types';
 import { resolvePlantModelType } from '../utils/plantModel';
+import { DECORATION_CATALOG } from '../data/decorationCatalog';
+import { FLOWER_CATALOG } from '../data/flowerCatalog';
+import { normalizeTerrainHeight, TILE_SURFACES } from '../utils/terrain';
 import {
   createEmptyState,
   migrateV1ToV2,
+  migrateV2ToV3,
   tryLoadV1FromStorage,
+  tryLoadV2FromStorage,
 } from './migration';
+import { getLocalDb, scopeForUser, GUEST_SCOPE } from './localDb';
+import { deleteImages, loadImage, saveImage, imageRefForObservation } from './imageStore';
+import {
+  hydrateState,
+  toPersisted,
+  type PersistedGardenState,
+} from './serializableState';
 
 export { createEmptyState };
 
-const STORAGE_KEY = 'komorebi-garden-v2';
+const LEGACY_V2_KEY = 'komorebi-garden-v2';
+
 /** Recognition path: research 10 — long edge 1280px, JPEG q90 before Pl@ntNet. */
 const MAX_IMAGE_DIMENSION = 1280;
 const JPEG_QUALITY = 0.9;
@@ -27,11 +47,11 @@ function isValidSoilTile(value: unknown): value is SoilTile {
     typeof t.x === 'number' &&
     typeof t.z === 'number' &&
     Number.isInteger(t.x) &&
-    Number.isInteger(t.z)
+    Number.isInteger(t.z) &&
+    (t.surface === undefined || TILE_SURFACES.includes(t.surface)) &&
+    (t.height === undefined || (typeof t.height === 'number' && Number.isFinite(t.height)))
   );
 }
-
-const GARDEN_MODEL_TYPES: GardenModelType[] = ['tulip', 'cosmos', 'pansy'];
 
 function isValidPlant(value: unknown): value is GardenPlant {
   if (!value || typeof value !== 'object') return false;
@@ -41,7 +61,7 @@ function isValidPlant(value: unknown): value is GardenPlant {
     p.observationIds === undefined ||
     (Array.isArray(p.observationIds) && p.observationIds.every((id) => typeof id === 'string'));
   const modelTypeValid =
-    p.modelType === undefined || GARDEN_MODEL_TYPES.includes(p.modelType);
+    p.modelType === undefined || FLOWER_CATALOG.some((entry) => entry.modelType === p.modelType);
   return (
     typeof p.id === 'string' &&
     colors.includes(p.color) &&
@@ -49,6 +69,17 @@ function isValidPlant(value: unknown): value is GardenPlant {
     typeof p.rotation === 'number' &&
     observationIdsValid &&
     modelTypeValid
+  );
+}
+
+function isValidDecoration(value: unknown): value is GardenDecoration {
+  if (!value || typeof value !== 'object') return false;
+  const d = value as GardenDecoration;
+  return (
+    typeof d.id === 'string' &&
+    DECORATION_CATALOG.some((entry) => entry.type === d.type) &&
+    typeof d.tileId === 'string' &&
+    typeof d.rotation === 'number'
   );
 }
 
@@ -66,20 +97,33 @@ export function normalizeGardenState(state: GardenState): GardenState {
 
   return {
     ...state,
+    soilTiles: state.soilTiles.map((tile) => ({
+      ...tile,
+      surface: (tile.surface ?? 'grass') as TileSurface,
+      height: normalizeTerrainHeight(tile.height),
+    })),
     plants: state.plants.map(normalizePlant),
     stashedPlants: state.stashedPlants.map(normalizePlant),
+    decorations: state.decorations ?? [],
+    stashedDecorations: state.stashedDecorations ?? [],
   };
 }
 
-function isValidGardenState(value: unknown): value is GardenState {
+function isValidPersistedState(value: unknown): value is PersistedGardenState {
   if (!value || typeof value !== 'object') return false;
-  const s = value as GardenState;
-  if (s.version !== 2) return false;
+  const s = value as PersistedGardenState;
+  if (s.version !== 3) return false;
   if (!Array.isArray(s.soilTiles) || !s.soilTiles.every(isValidSoilTile)) return false;
   if (!Array.isArray(s.plants) || !s.plants.every(isValidPlant)) return false;
   if (!Array.isArray(s.stashedPlants) || !s.stashedPlants.every(isValidPlant)) return false;
+  if (s.decorations !== undefined && (!Array.isArray(s.decorations) || !s.decorations.every(isValidDecoration))) return false;
+  if (
+    s.stashedDecorations !== undefined &&
+    (!Array.isArray(s.stashedDecorations) || !s.stashedDecorations.every(isValidDecoration))
+  ) return false;
   if (!Array.isArray(s.observations)) return false;
   if (typeof s.tulipUnlocked !== 'boolean') return false;
+  if (!s.sync || typeof s.sync.revision !== 'number') return false;
 
   const tileIds = new Set(s.soilTiles.map((t) => t.id));
   const placedIds = new Set<string>();
@@ -92,51 +136,40 @@ function isValidGardenState(value: unknown): value is GardenState {
     if (placedIds.has(plant.id)) return false;
     placedIds.add(plant.id);
   }
-
+  for (const decoration of s.decorations ?? []) {
+    if (!tileIds.has(decoration.tileId)) return false;
+    if (placedIds.has(decoration.id)) return false;
+    if (s.plants.some((plant) => plant.tileId === decoration.tileId)) return false;
+    placedIds.add(decoration.id);
+  }
+  for (const decoration of s.stashedDecorations ?? []) {
+    if (placedIds.has(decoration.id)) return false;
+    placedIds.add(decoration.id);
+  }
   return true;
 }
 
-export function loadState(): LoadResult {
+async function readPersisted(scope: string): Promise<PersistedGardenState | null> {
+  const db = await getLocalDb();
+  const row = await db.get('garden', scope);
+  if (!row) return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const v1 = tryLoadV1FromStorage();
-      if (v1) {
-        const migrated = migrateV1ToV2(v1);
-        saveState(migrated);
-        return { state: migrated, migrated: true };
-      }
-      return { state: createEmptyState() };
-    }
-
-    const parsed: unknown = JSON.parse(raw);
-    if (!isValidGardenState(parsed)) {
-      const v1 = tryLoadV1FromStorage();
-      if (v1) {
-        return {
-          state: migrateV1ToV2(v1),
-          migrated: true,
-          error: 'v2データが不正だったため、v1から再移行しました。',
-        };
-      }
-      return {
-        state: createEmptyState(),
-        error: '保存データの形式が不正です。既存のv1データは保持されています。',
-      };
-    }
-
-    return { state: normalizeGardenState(parsed) };
+    const parsed = JSON.parse(row.stateJson) as unknown;
+    if (!isValidPersistedState(parsed)) return null;
+    return parsed;
   } catch {
-    return {
-      state: createEmptyState(),
-      error: '保存データの読み込みに失敗しました。',
-    };
+    return null;
   }
 }
 
-export function saveState(state: GardenState): SaveResult {
+async function writePersisted(scope: string, persisted: PersistedGardenState): Promise<SaveResult> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const db = await getLocalDb();
+    await db.put('garden', {
+      userScope: scope,
+      stateJson: JSON.stringify(persisted),
+      updatedAt: new Date().toISOString(),
+    });
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : '不明なエラー';
@@ -148,6 +181,214 @@ export function saveState(state: GardenState): SaveResult {
     }
     return { ok: false, error: `保存に失敗しました: ${message}` };
   }
+}
+
+async function migrateLegacyStorage(): Promise<LoadResult | null> {
+  const v2 = tryLoadV2FromStorage();
+  if (v2) {
+    const v3 = migrateV2ToV3(v2);
+    for (const obs of v3.observations) {
+      if (obs.imageDataUrl) {
+        await saveImage(obs.imageRef, obs.imageDataUrl);
+      }
+    }
+    const save = await saveState(v3, GUEST_SCOPE);
+    if (!save.ok) {
+      return { state: v3, migrated: true, error: save.error };
+    }
+    return { state: v3, migrated: true };
+  }
+
+  const v1 = tryLoadV1FromStorage();
+  if (v1) {
+    const v2state = migrateV1ToV2(v1);
+    const v3 = migrateV2ToV3(v2state);
+    for (const obs of v3.observations) {
+      if (obs.imageDataUrl) {
+        await saveImage(obs.imageRef, obs.imageDataUrl);
+      }
+    }
+    const save = await saveState(v3, GUEST_SCOPE);
+    return {
+      state: v3,
+      migrated: true,
+      error: save.ok ? undefined : save.error,
+    };
+  }
+
+  return null;
+}
+
+export async function loadState(userId: string | null = null): Promise<LoadResult> {
+  const scope = scopeForUser(userId);
+  try {
+    const persisted = await readPersisted(scope);
+    if (persisted) {
+      const state = normalizeGardenState(await hydrateState(persisted, loadImage));
+      return { state };
+    }
+
+    if (scope === GUEST_SCOPE) {
+      const migrated = await migrateLegacyStorage();
+      if (migrated) return migrated;
+    }
+
+    return { state: createEmptyState() };
+  } catch {
+    return {
+      state: createEmptyState(),
+      error: '保存データの読み込みに失敗しました。',
+    };
+  }
+}
+
+export async function saveState(
+  state: GardenState,
+  userId: string | null = null,
+): Promise<SaveResult> {
+  try {
+    const scope = scopeForUser(userId);
+
+    for (const obs of state.observations) {
+      if (obs.imageDataUrl) {
+        await saveImage(obs.imageRef || imageRefForObservation(obs.id), obs.imageDataUrl);
+      }
+    }
+
+    const persisted = toPersisted(state);
+    return writePersisted(scope, persisted);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '不明なエラー';
+    if (message.includes('quota') || message.includes('QuotaExceeded')) {
+      return {
+        ok: false,
+        error: '保存容量が不足しています。古い記録を削除するか、写真の枚数を減らしてください。',
+      };
+    }
+    return { ok: false, error: `保存に失敗しました: ${message}` };
+  }
+}
+
+/** Remove photos, shelved copies, and legacy guest storage without deleting the garden row. */
+export async function clearScopeWipeArtifacts(userId: string | null): Promise<void> {
+  const scope = scopeForUser(userId);
+  const db = await getLocalDb();
+  const imageRefs = new Set<string>();
+
+  const row = await db.get('garden', scope);
+  if (row) {
+    try {
+      const parsed = JSON.parse(row.stateJson) as PersistedGardenState;
+      for (const obs of parsed.observations) {
+        if (obs.imageRef) imageRefs.add(obs.imageRef);
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+
+  const shelved = await db.getAll('shelved');
+  const shelvedTx = db.transaction('shelved', 'readwrite');
+  for (const entry of shelved) {
+    if (entry.userScope !== scope) continue;
+    try {
+      const parsed = JSON.parse(entry.stateJson) as PersistedGardenState;
+      for (const obs of parsed.observations) {
+        if (obs.imageRef) imageRefs.add(obs.imageRef);
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+    await shelvedTx.store.delete(entry.id);
+  }
+  await shelvedTx.done;
+
+  if (imageRefs.size > 0) {
+    await deleteImages([...imageRefs]);
+  }
+
+  if (scope === GUEST_SCOPE) {
+    try {
+      localStorage.removeItem('komorebi-garden-v1');
+      localStorage.removeItem(LEGACY_V2_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export async function clearScopeData(userId: string | null): Promise<void> {
+  const scope = scopeForUser(userId);
+  const db = await getLocalDb();
+  const row = await db.get('garden', scope);
+  if (row) {
+    try {
+      const parsed = JSON.parse(row.stateJson) as PersistedGardenState;
+      const refs = parsed.observations.map((o) => o.imageRef);
+      await deleteImages(refs);
+    } catch {
+      /* ignore parse errors */
+    }
+    await db.delete('garden', scope);
+  }
+  if (scope === GUEST_SCOPE) {
+    try {
+      localStorage.removeItem('komorebi-garden-v1');
+      localStorage.removeItem(LEGACY_V2_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export async function shelveGarden(
+  userId: string,
+  label: string,
+  state: GardenState,
+): Promise<void> {
+  const db = await getLocalDb();
+  const id = `shelved-${Date.now()}`;
+  await db.put('shelved', {
+    id,
+    userScope: scopeForUser(userId),
+    label,
+    stateJson: JSON.stringify(toPersisted(state)),
+    savedAt: new Date().toISOString(),
+  });
+}
+
+export async function listShelved(userId: string): Promise<
+  { id: string; label: string; savedAt: string }[]
+> {
+  const db = await getLocalDb();
+  const all = await db.getAll('shelved');
+  return all
+    .filter((s) => s.userScope === scopeForUser(userId))
+    .map((s) => ({ id: s.id, label: s.label, savedAt: s.savedAt }));
+}
+
+export async function restoreShelved(id: string, userId: string): Promise<GardenState | null> {
+  const db = await getLocalDb();
+  const row = await db.get('shelved', id);
+  if (!row || row.userScope !== scopeForUser(userId)) return null;
+  try {
+    const parsed = JSON.parse(row.stateJson) as PersistedGardenState;
+    if (!isValidPersistedState(parsed)) return null;
+    return normalizeGardenState(await hydrateState(parsed, loadImage));
+  } catch {
+    return null;
+  }
+}
+
+export function bumpRevision(state: GardenState): GardenState {
+  return {
+    ...state,
+    sync: {
+      ...state.sync,
+      revision: state.sync.revision + 1,
+      pendingChanges: true,
+    },
+  };
 }
 
 export async function compressImage(file: File): Promise<string> {
@@ -207,3 +448,6 @@ export function getPlantOnTile(state: GardenState, tileId: string): GardenPlant 
 export function countTulipObservations(state: GardenState): number {
   return state.observations.filter((o) => o.plantType === 'tulip').length;
 }
+
+/** @deprecated v2 key kept for migration only */
+export { LEGACY_V2_KEY };

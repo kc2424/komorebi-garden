@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { tulipVertexColor } from './proceduralMaterials';
 
-const grassGeometryCache = new Map<string, THREE.BufferGeometry>();
+/** A bounded shape palette: expanding and repainting the garden cannot grow this cache forever. */
+export const GRASS_GEOMETRY_VARIANTS = 64;
+const grassGeometryCache = new Map<number, THREE.BufferGeometry>();
 
 function seededRandom(seed: number): () => number {
   let state = seed;
@@ -522,11 +524,11 @@ function buildGrassTuftsGeometry(seed: number): THREE.BufferGeometry {
 }
 
 export function getGrassTuftsGeometry(tileX: number, tileZ: number): THREE.BufferGeometry {
-  const seed = ((tileX * 73856093) ^ (tileZ * 19349663)) >>> 0;
-  const key = `${seed}`;
+  const tileSeed = ((tileX * 73856093) ^ (tileZ * 19349663)) >>> 0;
+  const key = ((tileSeed ^ (tileSeed >>> 16)) >>> 0) % GRASS_GEOMETRY_VARIANTS;
   const cached = grassGeometryCache.get(key);
   if (cached) return cached;
-  const geometry = buildGrassTuftsGeometry(seed);
+  const geometry = buildGrassTuftsGeometry(Math.imul(key, 2654435761) >>> 0);
   grassGeometryCache.set(key, geometry);
   return geometry;
 }

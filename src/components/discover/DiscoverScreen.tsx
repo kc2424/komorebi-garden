@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import { SAMPLE_PHOTOS } from '../../data/sampleIdentification';
 import { compressImage, loadImageFromUrl } from '../../storage/persistence';
+import { capturePhotoNative, pickPhotoNative } from '../../platform/native';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
 import type { DiscoveryDraft } from '../../types';
 import { Banner } from '../ui/Banner';
@@ -110,7 +111,11 @@ export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
         <button
           type="button"
           className={styles.sourceCard}
-          onClick={() => cameraRef.current?.click()}
+          onClick={async () => {
+            const native = await capturePhotoNative();
+            if (native) await handleFile(native, null);
+            else cameraRef.current?.click();
+          }}
           disabled={loading}
           aria-busy={loading || undefined}
         >
@@ -125,7 +130,11 @@ export function DiscoverScreen({ onBack, onContinue }: DiscoverScreenProps) {
         <button
           type="button"
           className={styles.sourceCard}
-          onClick={() => fileRef.current?.click()}
+          onClick={async () => {
+            const native = await pickPhotoNative();
+            if (native) await handleFile(native, null);
+            else fileRef.current?.click();
+          }}
           disabled={loading}
           aria-busy={loading || undefined}
         >

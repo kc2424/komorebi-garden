@@ -1,0 +1,23 @@
+# Local Supabase config — link to a project before running supabase start
+# See docs/supabase-setup.md
+
+[project]
+id = "local"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://127.0.0.1:5173", "capacitor://localhost"]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+[storage]
+enabled = true

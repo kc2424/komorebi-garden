@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { GardenPlant, SoilTile } from '../types';
 import { createDefaultSoilTiles } from '../storage/migration';
+import { getPlantModelHeight } from '../utils/plantModel';
 import {
   CAMERA_FOV_DEG,
   DEFAULT_VIEWPORT_HEIGHT,
@@ -105,14 +106,14 @@ describe('gardenCamera', () => {
     expect(cameraPoseReached(position, target, goal)).toBe(true);
   });
 
-  it('keeps home admiration on last admired or first flower', () => {
+  it('defaults to the whole garden regardless of last admired or first flower', () => {
     expect(
       resolveCameraFocusPlantId(plants, {
         viewingPlantId: null,
         viewingObservationId: null,
         lastAdmiredPlantId: 'plant-b',
       }),
-    ).toBe('plant-b');
+    ).toBeNull();
 
     expect(
       resolveCameraFocusPlantId(plants, {
@@ -120,7 +121,7 @@ describe('gardenCamera', () => {
         viewingObservationId: null,
         lastAdmiredPlantId: null,
       }),
-    ).toBe('plant-a');
+    ).toBeNull();
   });
 
   it('does not focus an unrelated flower for unlinked observations', () => {
@@ -336,4 +337,76 @@ describe('gardenCamera', () => {
     const span = projectedSpanPx(corners, buildingPose, desktopWidth, desktopHeight);
     expect(span.width).toBeGreaterThan(320);
   });
+
+  it('focuses only an explicitly selected plant', () => {
+    expect(resolveCameraFocusPlantId(plants, { viewingPlantId: 'plant-b', viewingObservationId: null, lastAdmiredPlantId: null })).toBe('plant-b');
+  });
+
+  it.each([[320, 568], [390, 844], [1280, 900]])('fits raised terrain and tall plants in the whole-garden view at %sx%s', (width, height) => {
+    const tiles = createDefaultSoilTiles().map((tile) => ({ ...tile, height: tile.x === 2 ? 3 : 0 }));
+    const tallPlant: GardenPlant = { id: 'tree', tileId: 'soil-2-2', color: 'pink', rotation: 0, modelType: 'maple' };
+    const pose = getViewingCameraPose(tiles, null, { viewportHeight: height, viewportAspect: width / height, plants: [tallPlant], decorations: [], bottomInsetPx: 122 });
+    const points: [number, number, number][] = [];
+    for (const tile of tiles) {
+      const top = tile.height * .32 + .06 + (tile.id === tallPlant.tileId ? 2.28 : .08);
+      const half = tile.id === tallPlant.tileId ? .72 : .5;
+      for (const x of [tile.x - half, tile.x + half]) for (const z of [tile.z - half, tile.z + half]) for (const y of [GROUND_Y, top]) points.push([x, y, z]);
+    }
+    for (const point of points) {
+      const screen = projectToScreen(point, pose, width, height);
+      expect(screen.x).toBeGreaterThan(8);
+      expect(screen.x).toBeLessThan(width - 8);
+      expect(screen.y).toBeGreaterThan(70);
+      expect(screen.y).toBeLessThan(height - 122);
+    }
+  });
+
+  it('keeps the garden above the measured mobile tool tray', () => {
+    const tiles = createDefaultSoilTiles().map((tile) => ({ ...tile, height: 3 }));
+    const pose = getBuildingCameraPose(tiles, [], 568, 320 / 568, { plants: [], decorations: [], bottomInsetPx: 280 });
+    for (const tile of tiles) for (const x of [tile.x - .5, tile.x + .5]) for (const z of [tile.z - .5, tile.z + .5]) {
+      for (const y of [GROUND_Y, 1.1]) {
+        const screen = projectToScreen([x, y, z], pose, 320, 568);
+        expect(screen.y).toBeGreaterThan(65);
+        expect(screen.y).toBeLessThan(288);
+      }
+    }
+  });
+
+
+  it.each([[320, 568], [390, 844]])('keeps a raised tree between the header and its compact introduction at %sx%s', (width, height) => {
+    const tiles = createDefaultSoilTiles().map((tile) => ({ ...tile, height: tile.id === 'soil-0-0' ? 3 : 0 }));
+    const tree: GardenPlant = { id: 'tree', tileId: 'soil-0-0', color: 'pink', rotation: 0, modelType: 'cherry' };
+    const pose = getViewingCameraPose(tiles, tree, { viewportHeight: height, viewportAspect: width / height, memoryPanelOpen: true, bottomInsetPx: 170 });
+    const crown = projectToScreen([0, .96 + SOIL_TOP_Y + 2.18, 0], pose, width, height);
+    const root = projectToScreen([0, .96 + SOIL_TOP_Y, 0], pose, width, height);
+    expect(crown.y).toBeGreaterThan(72);
+    expect(root.y).toBeLessThan(height - 170);
+    expect(root.y - crown.y).toBeGreaterThan(135);
+  });
+
+
+  it.each([60, 15, 5])('orbits around an opposite-side flower without zoom overshoot at %s fps', (fps) => {
+    const soilTiles = createDefaultSoilTiles();
+    const focus: GardenPlant = { id: 'daisy-back', color: 'white', tileId: 'soil--2--2', rotation: 0, modelType: 'daisy' };
+    const options = { viewportHeight: 874, viewportAspect: 402 / 874, plants: [focus], decorations: [], bottomInsetPx: 174 };
+    const overview = getViewingCameraPose(soilTiles, null, options);
+    const detail = getViewingCameraPose(soilTiles, focus, { ...options, memoryPanelOpen: true });
+    const minRadius = Math.min(
+      Math.hypot(...overview.position.map((v, i) => v - overview.target[i])),
+      Math.hypot(...detail.position.map((v, i) => v - detail.target[i])),
+    );
+    let pose = overview;
+    for (let frame = 0; frame < 5 * fps; frame++) {
+      const next = stepCameraPose(pose.position, pose.target, detail, 1 / fps);
+      const radius = Math.hypot(...next.position.map((v, i) => v - next.target[i]));
+      expect(radius).toBeGreaterThanOrEqual(minRadius - .001);
+      const crown = projectToScreen([-2, .06 + getPlantModelHeight(focus), -2], next, 402, 874);
+      const root = projectToScreen([-2, .06, -2], next, 402, 874);
+      expect(Math.abs(root.y - crown.y)).toBeLessThan(350);
+      pose = next;
+    }
+    expect(cameraPoseReached(pose.position, pose.target, detail)).toBe(true);
+  });
+
 });

@@ -1,14 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GardenStore } from '../../hooks/useGardenStore';
+import type { SyncUiStatus } from '../../hooks/useAppSession';
 import { useSkySettings } from '../../hooks/useSkySettings';
-import type { GardenEditMode } from '../../types';
+import type { GardenDecorationType, GardenEditMode, TileSurface } from '../../types';
 import { getPlantDisplayName } from '../../data/flowerCatalog';
+import { DECORATION_CATALOG, getDecorationCatalogEntry, type DecorationCategory } from '../../data/decorationCatalog';
+import { MAX_TERRAIN_HEIGHT, TILE_SURFACES } from '../../utils/terrain';
 import { TULIP_COLORS } from '../../data/tulip';
 import { useScreenFocus } from '../../hooks/useScreenFocus';
 import { resolveCameraFocusPlantId } from '../../utils/gardenCamera';
 import { getModelPreviewLabel, resolvePlantModelType } from '../../utils/plantModel';
 import { cycleEmptyTileId } from '../../utils/plantingFlow';
 import { getLinkedObservations } from '../../utils/plantObservationLink';
+import { getEmptyGardenContext } from '../../utils/emptyGarden';
+import { GARDEN_LIMITS, getGardenCapacity } from '../../utils/gardenLimits';
 import { Garden3DCanvas } from '../garden3d/Garden3DCanvas';
 import { FlowerCatalogSheet } from './FlowerCatalogSheet';
 import { GardenMemoryPanel } from './GardenMemoryPanel';
@@ -19,15 +24,13 @@ interface GardenScreenProps {
   store: GardenStore;
   onDiscover: () => void;
   onObservations: () => void;
-  onCredits: () => void;
+  onSettings: () => void;
+  onOutings?: () => void;
+  onViewTulipObservations?: () => void;
+  plantObservationId?: string | null;
+  onPlantObservationHandled?: () => void;
+  syncStatus?: SyncUiStatus;
 }
-
-const BUILD_EDIT_MODES: { mode: GardenEditMode; label: string; icon: 'add' | 'remove' | 'move' | 'stash' }[] = [
-  { mode: 'add-soil', label: '土を足す', icon: 'add' },
-  { mode: 'remove-soil', label: '土を外す', icon: 'remove' },
-  { mode: 'move', label: '移す', icon: 'move' },
-  { mode: 'remove-plant', label: 'しまう', icon: 'stash' },
-];
 
 function formatCaptionDate(iso: string): string {
   try {
@@ -40,55 +43,16 @@ function formatCaptionDate(iso: string): string {
   }
 }
 
-function ModeIcon({ kind }: { kind: 'add' | 'remove' | 'move' | 'stash' }) {
-  switch (kind) {
-    case 'add':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.modeIcon}>
-          <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      );
-    case 'remove':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.modeIcon}>
-          <path d="M5 12h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      );
-    case 'move':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.modeIcon}>
-          <path
-            d="M12 4v16M4 12h16M8 8l4-4 4 4M8 16l4 4 4-4"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-          />
-        </svg>
-      );
-    case 'stash':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.modeIcon}>
-          <path
-            d="M6 8h12v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8zM4 8h16M9 12h6"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            fill="none"
-          />
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
-
 export function GardenScreen({
   store,
   onDiscover,
   onObservations,
-  onCredits,
+  onSettings,
+  onOutings,
+  onViewTulipObservations: _onViewTulipObservations,
+  plantObservationId: pendingPlantObservationId,
+  onPlantObservationHandled,
+  syncStatus,
 }: GardenScreenProps) {
   const {
     state,
@@ -107,6 +71,8 @@ export function GardenScreen({
     viewingPlantId,
     viewingObservationId,
     lastAdmiredPlantId,
+    setLastAdmiredPlantId,
+    closeMemoryView,
     plantingFlowActive,
     catalogExpanded,
     selectedModelType,
@@ -114,6 +80,10 @@ export function GardenScreen({
     pendingFromStashPlantId,
     pendingRotation,
     placementSaveError,
+    placementSaving,
+    saveStatus,
+    canUndo,
+    canRedo,
     emptySoilTiles,
     addablePositions,
     tulipUnlocked,
@@ -121,11 +91,21 @@ export function GardenScreen({
     removeSoilTile,
     movePlant,
     stashPlant,
+    paintSurface,
+    changeTileHeight,
+    placeDecoration,
+    moveDecoration,
+    stashDecoration,
+    restoreDecoration,
+    rotateGardenItem,
+    undoGarden,
+    redoGarden,
     linkPlantObservation,
     unlinkPlantObservation,
     enterBuildingPhase,
     exitBuildingPhase,
     enterPlantingFlow,
+    enterPlantingFlowForObservation,
     selectFlowerModel,
     reopenFlowerCatalog,
     beginPendingPlacement,
@@ -135,6 +115,7 @@ export function GardenScreen({
     clearPlantingFlow,
     selectStashForPlanting,
     openMemoryView,
+    finishPlantingAndView,
     resetEditSelection,
   } = store;
 
@@ -142,6 +123,23 @@ export function GardenScreen({
   const plantingKeyboardRef = useRef<HTMLDivElement>(null);
   const [skySettingsOpen, setSkySettingsOpen] = useState(false);
   const [obsSectionOpen, setObsSectionOpen] = useState(false);
+  const [toolCategory, setToolCategory] = useState<'flowers' | 'surfaces' | 'decorations'>('flowers');
+  const [selectedSurface, setSelectedSurface] = useState<TileSurface>('stone');
+  const [cameraResetKey, setCameraResetKey] = useState(0);
+  const buildingTrayRef = useRef<HTMLDivElement>(null);
+  const [trayHeight, setTrayHeight] = useState(330);
+  const [memoryCardHeight, setMemoryCardHeight] = useState<number | undefined>();
+  const [decorationCatalogExpanded, setDecorationCatalogExpanded] = useState(true);
+  const [decorationQuery, setDecorationQuery] = useState('');
+  const [decorationCategory, setDecorationCategory] = useState<DecorationCategory | 'all'>('all');
+  const [selectedDecorationType, setSelectedDecorationType] =
+    useState<GardenDecorationType | null>(null);
+  const [selectedDecorationId, setSelectedDecorationId] = useState<string | null>(null);
+  const [pendingDecorationTileId, setPendingDecorationTileId] = useState<string | null>(null);
+  const [pendingDecorationRotation, setPendingDecorationRotation] = useState(0);
+  const [pendingStashDecorationId, setPendingStashDecorationId] = useState<string | null>(null);
+  const [decorationSaving, setDecorationSaving] = useState(false);
+  const decorationBusyRef = useRef(false);
   const {
     settings: skySettings,
     activePeriod,
@@ -154,12 +152,67 @@ export function GardenScreen({
   const isViewing = gardenPhase === 'viewing';
   const brightSkyHeader = activePeriod === 'morning' || activePeriod === 'day';
   const isBuilding = gardenPhase === 'building';
+
+  useEffect(() => {
+    if (!isBuilding || !plantingFlowActive) return;
+    setToolCategory('flowers');
+    setSelectedDecorationId(null);
+    setSelectedDecorationType(null);
+    setPendingStashDecorationId(null);
+    setPendingDecorationTileId(null);
+  }, [isBuilding, plantingFlowActive]);
+  useEffect(() => {
+    if (!isBuilding) return;
+    const node = buildingTrayRef.current;
+    if (!node) return;
+    const measure = () => {
+      const height = Math.round(node.getBoundingClientRect().height);
+      if (height > 0) setTrayHeight(height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isBuilding]);
+
+  const resetCamera = () => {
+    closeMemoryView();
+    setLastAdmiredPlantId(null);
+    setCameraResetKey((key) => key + 1);
+  };
+
   const memoryOpen = Boolean(viewingPlantId || viewingObservationId);
 
   const tulipObservations = useMemo(
     () => state.observations.filter((o) => o.plantType === 'tulip'),
     [state.observations],
   );
+
+  const emptyGarden = useMemo(
+    () => getEmptyGardenContext(state),
+    [state],
+  );
+  const gardenCapacity = useMemo(() => getGardenCapacity(state), [state]);
+
+  const plantingObservation = useMemo(
+    () => (plantObservationId ? state.observations.find((o) => o.id === plantObservationId) : null),
+    [plantObservationId, state.observations],
+  );
+
+  useEffect(() => {
+    if (!pendingPlantObservationId) return;
+    enterPlantingFlowForObservation(pendingPlantObservationId);
+    onPlantObservationHandled?.();
+  }, [pendingPlantObservationId, enterPlantingFlowForObservation, onPlantObservationHandled]);
+
+  const handleConfirmPlacement = useCallback(async () => {
+    const linkedObservationId = plantObservationId;
+    const plantId = await confirmPendingPlacement();
+    if (!plantId) return;
+    if (linkedObservationId) {
+      finishPlantingAndView(plantId, linkedObservationId);
+    }
+  }, [plantObservationId, confirmPendingPlacement, finishPlantingAndView]);
 
   const linkTargetPlant = useMemo(() => {
     if (selectedPlantId) {
@@ -227,11 +280,32 @@ export function GardenScreen({
     pendingRotation,
   ]);
 
+  const pendingDecoration = pendingStashDecorationId
+    ? state.stashedDecorations.find((item) => item.id === pendingStashDecorationId)
+    : null;
+  const activeDecorationType = pendingDecoration?.type ?? selectedDecorationType;
+  const occupiedTileIds = useMemo(
+    () =>
+      new Set([
+        ...state.plants.map((plant) => plant.tileId),
+        ...state.decorations.map((decoration) => decoration.tileId),
+      ]),
+    [state.plants, state.decorations],
+  );
+
   const hasPlantingSelection = Boolean(selectedModelType || pendingFromStashPlantId);
   const noEmptySoil = plantingFlowActive && hasPlantingSelection && emptySoilTiles.length === 0;
 
   const handleTileClick = (tileId: string) => {
     if (!isBuilding) return;
+
+    if (toolCategory === 'decorations' && activeDecorationType && !decorationCatalogExpanded) {
+      if (!occupiedTileIds.has(tileId)) {
+        setPendingDecorationTileId(tileId);
+        setSelectedTileId(tileId);
+      }
+      return;
+    }
 
     if (plantingFlowActive && hasPlantingSelection && !catalogExpanded) {
       beginPendingPlacement(tileId);
@@ -244,8 +318,24 @@ export function GardenScreen({
       resetEditSelection();
       return;
     }
+    if (editMode === 'raise-terrain' || editMode === 'lower-terrain') {
+      void changeTileHeight(tileId, editMode === 'raise-terrain' ? 1 : -1);
+      setSelectedTileId(tileId);
+      return;
+    }
+    if (editMode === 'paint-surface') {
+      paintSurface(tileId, selectedSurface);
+      setSelectedTileId(tileId);
+      return;
+    }
     if (editMode === 'move' && selectedPlantId) {
       movePlant(selectedPlantId, tileId);
+      resetEditSelection();
+      return;
+    }
+    if (editMode === 'move' && selectedDecorationId) {
+      moveDecoration(selectedDecorationId, tileId);
+      setSelectedDecorationId(null);
       resetEditSelection();
       return;
     }
@@ -273,19 +363,103 @@ export function GardenScreen({
       return;
     }
     if (editMode === 'move') {
+      setSelectedDecorationId(null);
       setSelectedPlantId(plantId);
       return;
     }
+    clearPlantingFlow();
+    setSelectedDecorationType(null);
+    setPendingStashDecorationId(null);
+    setPendingDecorationTileId(null);
     setSelectedPlantId(plantId);
+    setSelectedDecorationId(null);
+  };
+
+  const handleDecorationClick = (decorationId: string) => {
+    if (!isBuilding) return;
+    if (editMode === 'remove-plant') {
+      stashDecoration(decorationId);
+      setSelectedDecorationId(null);
+      return;
+    }
+    clearPlantingFlow();
+    setSelectedDecorationType(null);
+    setPendingStashDecorationId(null);
+    setPendingDecorationTileId(null);
+    setSelectedDecorationId(decorationId);
+    setSelectedPlantId(null);
+  };
+
+  const selectCategory = (category: 'flowers' | 'surfaces' | 'decorations') => {
+    setToolCategory(category);
+    setDecorationCatalogExpanded(true);
+    setSelectedDecorationId(null);
+    setPendingDecorationTileId(null);
+    setPendingStashDecorationId(null);
+    setSelectedDecorationType(null);
+    resetEditSelection();
+    if (category === 'flowers') {
+      enterPlantingFlow();
+    } else {
+      clearPlantingFlow();
+      setEditMode(category === 'surfaces' ? 'paint-surface' : 'place-decoration');
+    }
+  };
+
+  const confirmDecorationPlacement = async () => {
+    if (!pendingDecorationTileId || !activeDecorationType || decorationBusyRef.current) return;
+    decorationBusyRef.current = true;
+    setDecorationSaving(true);
+    try {
+      const result = pendingStashDecorationId
+        ? await restoreDecoration(
+            pendingStashDecorationId,
+            pendingDecorationTileId,
+            pendingDecorationRotation,
+          )
+        : await placeDecoration(
+            pendingDecorationTileId,
+            activeDecorationType,
+            pendingDecorationRotation,
+          );
+      if (!result.ok) return;
+      setPendingDecorationTileId(null);
+      if (pendingStashDecorationId) {
+        setPendingStashDecorationId(null);
+        setSelectedDecorationType(null);
+        setDecorationCatalogExpanded(true);
+      }
+    } finally {
+      decorationBusyRef.current = false;
+      setDecorationSaving(false);
+    }
   };
 
   const handleModeChange = (mode: GardenEditMode) => {
+    setSelectedDecorationId(null);
+    if (mode === 'move' || mode === 'remove-plant') {
+      setSelectedDecorationType(null);
+      setPendingStashDecorationId(null);
+      setPendingDecorationTileId(null);
+    }
     setEditMode(mode);
     resetEditSelection();
   };
 
+  const moveSelectedItem = () => {
+    const plantId = selectedPlantId;
+    const decorationId = selectedDecorationId;
+    setSelectedDecorationType(null);
+    setPendingStashDecorationId(null);
+    setPendingDecorationTileId(null);
+    setEditMode('move');
+    setSelectedPlantId(plantId);
+    setSelectedDecorationId(decorationId);
+  };
+
   const handleAddSoilFromPlanting = () => {
     clearPlantingFlow();
+    setToolCategory('surfaces');
     setEditMode('add-soil');
   };
 
@@ -343,7 +517,7 @@ export function GardenScreen({
 
       if (e.key === 'Enter' && pendingPlacementTileId) {
         e.preventDefault();
-        confirmPendingPlacement();
+        void handleConfirmPlacement();
       }
     };
 
@@ -363,14 +537,19 @@ export function GardenScreen({
     cancelPendingPlacement,
     clearPlantingFlow,
     reopenFlowerCatalog,
-    confirmPendingPlacement,
+    handleConfirmPlacement,
     setSelectedTileId,
   ]);
 
   const editHint = (() => {
     if (isViewing) return '花をタップして思い出を見られます。指で回して眺められます';
+    if (toolCategory === 'decorations' && activeDecorationType) {
+      return pendingDecorationTileId
+        ? '位置を確認して確定します。続けて同じ飾りを置けます'
+        : '空いているタイルをタップして仮置きします';
+    }
     if (plantingFlowActive) {
-      if (catalogExpanded) return '見本をタップして選びます';
+      if (catalogExpanded) return '好きな植物を選んで、庭に迎えましょう';
       if (!hasPlantingSelection) return '花を選んでから、空いている土をタップします';
       if (noEmptySoil) return '空きがありません。土を足す';
       if (!pendingPlacementTileId) return '光っている土をタップして仮置きします';
@@ -380,38 +559,42 @@ export function GardenScreen({
       case 'add-soil':
         return '光っている位置をタップして土を足します';
       case 'remove-soil':
-        return '空の土タイルをタップして外します（花はしまわれます）';
+        return 'タイルを外します。載っている花や飾りは収納へ移ります';
+      case 'raise-terrain':
+        return `タイルをタップして高くします（最大${MAX_TERRAIN_HEIGHT}段）`;
+      case 'lower-terrain':
+        return 'タイルをタップして1段低くします';
+      case 'paint-surface':
+        return 'タイルをタップして表面を塗ります';
       case 'move':
-        return '花を選んでから移したい土をタップします';
+        return selectedPlantId || selectedDecorationId
+          ? '移したい空きタイルをタップしてください'
+          : '移したい花か飾りをタップしてください';
       case 'remove-plant':
-        return '花をタップして庭からしまいます';
+        return '花か飾りをタップして収納します';
       default:
         return '庭全体を見渡して編集できます';
     }
   })();
 
-  const handlePlantingBack = () => {
-    if (pendingPlacementTileId) {
-      cancelPendingPlacement();
-      return;
-    }
-    if (catalogExpanded) {
-      clearPlantingFlow();
-      return;
-    }
-    reopenFlowerCatalog();
-  };
-
   const plantingFlowTitle = catalogExpanded
-    ? '花を選ぶ'
+    ? '植物を選ぶ'
     : hasPlantingSelection
-      ? '花を植える'
-      : '花を選ぶ';
+      ? '植物を植える'
+      : '植物を選ぶ';
 
   const plantingKeyboardHint =
     emptySoilTiles.length > 0 && hasPlantingSelection && !catalogExpanded
       ? '左右キーで空き土を選び、Enterで確定'
       : undefined;
+
+  const filteredDecorations = DECORATION_CATALOG.filter((entry) =>
+    (decorationCategory === 'all' || entry.category === decorationCategory)
+    && (!decorationQuery.trim() || `${entry.label} ${entry.description}`.includes(decorationQuery.trim())));
+  const activeDecorationEntry = activeDecorationType ? getDecorationCatalogEntry(activeDecorationType) : null;
+  const surfaceLabels: Record<TileSurface, string> = {
+    grass: '草', soil: '土', stone: '石の小径', gravel: '砂利', wood: '木のデッキ', water: '水辺',
+  };
 
   return (
     <div className={styles.screen}>
@@ -419,25 +602,35 @@ export function GardenScreen({
         <Garden3DCanvas
           soilTiles={state.soilTiles}
           plants={state.plants}
+          decorations={state.decorations}
           gardenPhase={gardenPhase}
           editMode={isBuilding ? editMode : 'view'}
           selectedTileId={selectedTileId}
           selectedPlantId={selectedPlantId}
+          selectedDecorationId={isBuilding ? selectedDecorationId : null}
           focusPlantId={cameraFocusPlantId}
           highlightPlantId={highlightPlantId}
           plantColor={plantColor}
           addablePositions={addablePositions}
           tulipUnlocked={tulipUnlocked}
           plantingFlowActive={plantingFlowActive && hasPlantingSelection}
-          pendingPlacementTileId={pendingPlacementTileId}
-          pendingPlacementPreview={pendingPlacementPreview}
+          pendingPlacementTileId={isBuilding ? pendingDecorationTileId ?? pendingPlacementTileId : null}
+          pendingPlacementPreview={isBuilding ? pendingPlacementPreview : null}
+          pendingDecorationPreview={
+            isBuilding && activeDecorationType
+              ? { type: activeDecorationType, rotation: pendingDecorationRotation }
+              : null
+          }
           memoryPanelOpen={memoryOpen}
+          cameraResetKey={cameraResetKey}
+          bottomInsetPx={isBuilding ? trayHeight : memoryOpen ? memoryCardHeight : 122}
           skyPeriod={activePeriod}
           skyCloudMotionEnabled={cloudMotionEnabled}
           skyTransitionsEnabled={transitionsEnabled}
           onTileClick={handleTileClick}
           onGhostTileClick={handleGhostTileClick}
           onPlantClick={handlePlantClick}
+          onDecorationClick={handleDecorationClick}
         />
       </div>
 
@@ -445,14 +638,14 @@ export function GardenScreen({
         <header className={styles.header}>
           {isBuilding ? (
             <button type="button" className={styles.doneBtn} onClick={exitBuildingPhase}>
-              完了
+              眺める
             </button>
           ) : (
             <button
               type="button"
               className={styles.creditsBtn}
-              onClick={onCredits}
-              aria-label="クレジット"
+              onClick={onSettings}
+              aria-label="設定"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="6" r="1.4" fill="currentColor" />
@@ -466,9 +659,25 @@ export function GardenScreen({
             <h1 className={styles.title} ref={titleRef} tabIndex={-1}>
               こもれび植物園
             </h1>
-            <p className={styles.caption}>わたしの小さな庭</p>
+            <p className={styles.caption}>
+              わたしの小さな庭
+              {syncStatus === 'synced' ? ' · 同期済み' : syncStatus === 'pending' ? ' · 未同期' : ''}
+              {isBuilding
+                ? saveStatus === 'saving'
+                  ? ' · 保存中…'
+                  : saveStatus === 'error'
+                    ? ' · 保存失敗'
+                    : saveStatus === 'saved'
+                      ? ' · 保存済み'
+                      : ''
+                : ''}
+            </p>
           </div>
 
+          <button type="button" className={styles.homeViewBtn} onClick={resetCamera} aria-label="庭全体を見る" title="庭全体を見る">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /><path d="m12 7 6 5-6 5-6-5Z" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+            <span>全景</span>
+          </button>
           <button
             type="button"
             className={styles.skySettingsBtn}
@@ -542,101 +751,133 @@ export function GardenScreen({
                 )}
               </>
             ) : (
-              <p className={styles.gardenCaptionEmpty}>
-                写真を撮って、最初の花を庭に迎えましょう
-              </p>
+              <div className={styles.gardenCaptionEmpty}>
+                <p>{emptyGarden.message}</p>
+                {emptyGarden.scenario === 'plantable_available' &&
+                  emptyGarden.plantObservationId && (
+                  <button
+                    type="button"
+                    className={styles.emptyGardenPlantBtn}
+                    onClick={() => enterPlantingFlowForObservation(emptyGarden.plantObservationId!)}
+                  >
+                    {emptyGarden.plantObservationName}を庭に植える
+                  </button>
+                )}
+                {emptyGarden.scenario === 'stashed_only' && (
+                  <button
+                    type="button"
+                    className={styles.emptyGardenPlantBtn}
+                    onClick={enterBuildingPhase}
+                  >
+                    庭づくりを開く
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
 
-        {isViewing && <GardenMemoryPanel store={store} />}
+        {isViewing && <GardenMemoryPanel store={store} onCompactHeightChange={setMemoryCardHeight} />}
 
         {isBuilding && (
-          <div className={styles.buildingTray}>
+          <div className={styles.buildingTray} ref={buildingTrayRef}>
             <div className={styles.buildingPanel}>
-              {plantingFlowActive ? (
-                <div
-                  ref={plantingKeyboardRef}
-                  className={styles.plantingFlowHeader}
-                  tabIndex={-1}
-                  role="region"
-                  aria-label={plantingFlowTitle}
-                >
-                  <button
-                    type="button"
-                    className={styles.plantingBackBtn}
-                    onClick={handlePlantingBack}
-                  >
-                    戻る
-                  </button>
-                  <h2 className={styles.plantingFlowTitle}>{plantingFlowTitle}</h2>
-                  {plantingKeyboardHint && (
-                    <p className={styles.plantingKeyboardHint}>{plantingKeyboardHint}</p>
-                  )}
+              <div className={styles.toolboxTop}>
+                <div className={styles.categoryRow} role="tablist" aria-label="置くもの">
+                  {([
+                    ['flowers', '植物'],
+                    ['surfaces', '道・地面'],
+                    ['decorations', '飾り'],
+                  ] as const).map(([category, label]) => (
+                    <button
+                      key={category}
+                      type="button"
+                      role="tab"
+                      aria-selected={toolCategory === category}
+                      className={`${styles.categoryBtn} ${toolCategory === category ? styles.categoryActive : ''}`}
+                      onClick={() => selectCategory(category)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.plantEntryBtn}
-                    onClick={enterPlantingFlow}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.plantEntryIcon}>
-                      <path
-                        d="M12 20V10M8 14c-3-1-4-5-2-7 2-2 5-1 6 1M16 14c3-1 4-5 2-7-2-2-5-1-6 1"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        fill="none"
-                      />
-                    </svg>
-                    <span>花を植える</span>
+                <div className={styles.historyRow}>
+                  <button type="button" aria-pressed={editMode === 'move'} onClick={() => handleModeChange('move')}>
+                    移動
                   </button>
-
-                  <div className={styles.modeRow} role="group" aria-label="庭の編集道具">
-                    {BUILD_EDIT_MODES.map(({ mode, label, icon }) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`${styles.modeBtn} ${editMode === mode ? styles.modeActive : ''}`}
-                        onClick={() => handleModeChange(mode)}
-                        aria-pressed={editMode === mode}
-                      >
-                        <ModeIcon kind={icon} />
-                        <span className={styles.modeLabel}>{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+                  <button type="button" aria-pressed={editMode === 'remove-plant'} onClick={() => handleModeChange('remove-plant')}>
+                    収納
+                  </button>
+                  <button type="button" disabled={!canUndo || saveStatus === 'saving'} onClick={() => void undoGarden()}>
+                    ↶ 取り消す
+                  </button>
+                  <button type="button" disabled={!canRedo || saveStatus === 'saving'} onClick={() => void redoGarden()}>
+                    ↷ やり直す
+                  </button>
+                </div>
+                <p className={styles.capacityLine}>
+                  土地 {gardenCapacity.tileCount}/{GARDEN_LIMITS.maxTiles}
+                  <span aria-hidden="true"> · </span>
+                  配置 {gardenCapacity.placedItemCount}/{GARDEN_LIMITS.maxPlacedItems}
+                  <span aria-hidden="true"> · </span>
+                  高さ {GARDEN_LIMITS.maxHeight + 1}段
+                  <span aria-hidden="true"> · </span>
+                  9×9内
+                </p>
+                {gardenCapacity.isLegacy && (
+                  <p className={styles.legacyCapacityWarning} role="status">
+                    以前の庭が現在の範囲を超えています。今ある配置は消さず、移動・収納できます。
+                  </p>
+                )}
+              </div>
 
               <div
+                ref={plantingKeyboardRef}
                 className={`${styles.buildingScroll} ${plantingFlowActive ? styles.buildingScrollCompact : ''}`}
+                tabIndex={plantingFlowActive ? -1 : undefined}
+                role={plantingFlowActive ? 'region' : undefined}
+                aria-label={plantingFlowActive ? plantingFlowTitle : undefined}
               >
+                {plantingKeyboardHint && <span className={styles.keyboardOnlyHint}>{plantingKeyboardHint}</span>}
                 <p className={styles.editHint} role="status">{editHint}</p>
 
                 {plantingFlowActive && (
                   <div className={styles.plantingFlowBody}>
-                    <FlowerCatalogSheet
-                      expanded={catalogExpanded}
-                      selectedModelType={selectedModelType}
-                      displayModelType={displayModelType}
-                      displayColor={displayColor}
-                      plantColor={plantColor}
-                      tulipUnlocked={tulipUnlocked}
-                      stashedPlants={state.stashedPlants}
-                      selectedStashPlantId={pendingFromStashPlantId}
-                      onSelect={selectFlowerModel}
-                      onSelectStash={selectStashForPlanting}
-                      onReselect={reopenFlowerCatalog}
-                    />
+                    {plantingObservation && !catalogExpanded && (
+                      <section className={styles.obsPlantContext} aria-label="植える観察">
+                        <img
+                          src={plantingObservation.imageDataUrl}
+                          alt=""
+                          className={styles.obsPlantThumb}
+                        />
+                        <div>
+                          <p className={styles.obsPlantName}>{plantingObservation.commonNameJa}</p>
+                          <p className={styles.obsPlantHint}>この記録の写真と結びつけて植えます</p>
+                        </div>
+                      </section>
+                    )}
+
+                    {!plantObservationId && (
+                      <FlowerCatalogSheet
+                        expanded={catalogExpanded}
+                        selectedModelType={selectedModelType}
+                        displayModelType={displayModelType}
+                        displayColor={displayColor}
+                        plantColor={plantColor}
+                        tulipUnlocked={tulipUnlocked}
+                        stashedPlants={state.stashedPlants}
+                        selectedStashPlantId={pendingFromStashPlantId}
+                        onSelect={selectFlowerModel}
+                        onSelectStash={selectStashForPlanting}
+                        onReselect={reopenFlowerCatalog}
+                      />
+                    )}
 
                     {selectedModelType === 'tulip' &&
                       !catalogExpanded &&
                       !isStashRestoration &&
-                      tulipUnlocked && (
+                      !plantObservationId && (
                       <section className={styles.colorSection} aria-label="チューリップの色">
-                        <p className={styles.fieldLabel}>植える色</p>
                         <div className={styles.colorRow}>
                           {TULIP_COLORS.map((c) => (
                             <button
@@ -656,7 +897,7 @@ export function GardenScreen({
                     {selectedModelType === 'tulip' &&
                       !catalogExpanded &&
                       !isStashRestoration &&
-                      tulipUnlocked &&
+                      !plantObservationId &&
                       tulipObservations.length > 0 && (
                         <section className={styles.obsPickSection}>
                           <button
@@ -700,24 +941,6 @@ export function GardenScreen({
                         </section>
                       )}
 
-                    {!catalogExpanded && state.stashedPlants.length > 0 && (
-                      <section className={styles.stashSection} aria-label="しまった花">
-                        <p className={styles.fieldLabel}>しまった花 ({state.stashedPlants.length})</p>
-                        <div className={styles.stashRow}>
-                          {state.stashedPlants.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              className={`${styles.stashChip} ${pendingFromStashPlantId === p.id ? styles.stashSelected : ''}`}
-                              onClick={() => selectStashForPlanting(p.id)}
-                            >
-                              {getPlantDisplayName(p)}
-                            </button>
-                          ))}
-                        </div>
-                      </section>
-                    )}
-
                     {noEmptySoil && (
                       <div className={styles.emptySoilGuide}>
                         <p>空きがありません。土を足す</p>
@@ -742,16 +965,17 @@ export function GardenScreen({
                             <button
                               type="button"
                               className={styles.confirmBtn}
-                              onClick={() => confirmPendingPlacement()}
+                              disabled={placementSaving}
+                              onClick={() => void handleConfirmPlacement()}
                             >
-                              ここに植える
+                              {placementSaving ? '保存中…' : 'ここに植える'}
                             </button>
                             <button
                               type="button"
                               className={styles.cancelBtn}
                               onClick={cancelPendingPlacement}
                             >
-                              やり直す
+                              キャンセル
                             </button>
                           </div>
                         )}
@@ -762,6 +986,131 @@ export function GardenScreen({
                       <p className={styles.placementError} role="alert">{placementSaveError}</p>
                     )}
                   </div>
+                )}
+
+                {toolCategory === 'surfaces' && !plantingFlowActive && (
+                  <div className={styles.sandboxSection}>
+                    <div className={styles.optionGrid} role="group" aria-label="地面の表面">
+                      {TILE_SURFACES.map((surface) => (
+                        <button
+                          key={surface}
+                          type="button"
+                          className={`${styles.optionBtn} ${editMode === 'paint-surface' && selectedSurface === surface ? styles.optionActive : ''}`}
+                          onClick={() => {
+                            setSelectedDecorationId(null);
+                            resetEditSelection();
+                            setSelectedSurface(surface);
+                            setEditMode('paint-surface');
+                          }}
+                        >
+                          <span className={`${styles.surfaceDot} ${styles[`surface_${surface}`]}`} />
+                          {surfaceLabels[surface]}
+                        </button>
+                      ))}
+                    </div>
+                    <div className={styles.shapeTools} role="group" aria-label="地面の高さ">
+                      <button type="button" className={editMode === 'raise-terrain' ? styles.optionActive : ''} onClick={() => handleModeChange('raise-terrain')}>↟ 高くする</button>
+                      <button type="button" className={editMode === 'lower-terrain' ? styles.optionActive : ''} onClick={() => handleModeChange('lower-terrain')}>↡ 低くする</button>
+                    </div>
+                    <div className={styles.shapeTools} role="group" aria-label="庭の形">
+                      <button type="button" className={editMode === 'add-soil' ? styles.optionActive : ''} onClick={() => handleModeChange('add-soil')}>
+                        ＋ 土台を足す
+                      </button>
+                      <button type="button" className={editMode === 'remove-soil' ? styles.optionActive : ''} onClick={() => handleModeChange('remove-soil')}>
+                        − 土台を外す
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {toolCategory === 'decorations' && !plantingFlowActive && !selectedPlantId && !selectedDecorationId && (
+                  <div className={styles.sandboxSection}>
+                    {decorationCatalogExpanded || !activeDecorationEntry ? (
+                      <>
+                        <input type="search" className={styles.paletteSearch} aria-label="飾りを探す" placeholder="飾りを探す" value={decorationQuery} onChange={(event) => setDecorationQuery(event.target.value)} />
+                        <div className={styles.paletteFilters} role="group" aria-label="飾りの種類">
+                          {([['all', 'すべて'], ['rest', 'くつろぎ'], ['path', '小径'], ['water', '水辺'], ['growing', '園芸'], ['ornament', 'アクセント']] as const).map(([category, label]) => (
+                            <button key={category} type="button" aria-pressed={decorationCategory === category} onClick={() => setDecorationCategory(category)}>{label}</button>
+                          ))}
+                        </div>
+                        <div className={styles.decorationGrid} role="group" aria-label="飾りを選ぶ">
+                          {filteredDecorations.map((entry) => (
+                            <button key={entry.type} type="button" className={styles.decorationCard} onClick={() => {
+                              setSelectedDecorationId(null);
+                              resetEditSelection();
+                              setSelectedDecorationType(entry.type);
+                              setPendingStashDecorationId(null);
+                              setPendingDecorationTileId(null);
+                              setPendingDecorationRotation(entry.type === 'bench' ? Math.PI / 2 : 0);
+                              setDecorationCatalogExpanded(false);
+                              setEditMode('place-decoration');
+                            }}>
+                              <img src={entry.thumbnail} alt="" loading="lazy" />
+                              <span>{entry.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {filteredDecorations.length === 0 && <p className={styles.paletteEmpty}>別の名前や種類で探してみてください。</p>}
+                        {state.stashedDecorations.length > 0 && (
+                          <details className={styles.stashSection}>
+                            <summary className={styles.stashSummary}>収納した飾り ({state.stashedDecorations.length})</summary>
+                            <div className={styles.stashRow}>
+                              {state.stashedDecorations.map((decoration) => (
+                                <button key={decoration.id} type="button" className={styles.stashChip} onClick={() => {
+                                  setSelectedDecorationId(null);
+                                  resetEditSelection();
+                                  setPendingStashDecorationId(decoration.id);
+                                  setSelectedDecorationType(null);
+                                  setPendingDecorationTileId(null);
+                                  setPendingDecorationRotation(decoration.rotation);
+                                  setDecorationCatalogExpanded(false);
+                                }}>{getDecorationCatalogEntry(decoration.type).label}</button>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </>
+                    ) : (
+                      <button type="button" className={styles.selectedDecorationCard} onClick={() => {
+                        setDecorationCatalogExpanded(true);
+                        setPendingDecorationTileId(null);
+                      }}>
+                        <img src={activeDecorationEntry.thumbnail} alt="" />
+                        <span>{activeDecorationEntry.label}</span>
+                        <small>選び直す</small>
+                      </button>
+                    )}
+                    {activeDecorationType && !decorationCatalogExpanded && (
+                      <div className={styles.placementActions}>
+                        <button type="button" className={styles.rotateBtn} onClick={() => setPendingDecorationRotation((value) => value + Math.PI / 4)}>向きを回す</button>
+                        {pendingDecorationTileId && (
+                          <div className={styles.confirmRow}>
+                            <button type="button" className={styles.confirmBtn} disabled={decorationSaving} onClick={() => void confirmDecorationPlacement()}>{decorationSaving ? '保存中…' : 'ここに置く'}</button>
+                            <button type="button" className={styles.cancelBtn} onClick={() => setPendingDecorationTileId(null)}>キャンセル</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!plantingFlowActive && !activeDecorationType && (selectedPlantId || selectedDecorationId) && (
+                  <section className={styles.selectedActions} aria-label="選んだものの操作">
+                    <p>選んだものを操作</p>
+                    <button type="button" onClick={() => rotateGardenItem(selectedPlantId ?? selectedDecorationId!)}>向きを回す</button>
+                    <button type="button" onClick={moveSelectedItem}>移動する</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedPlantId) stashPlant(selectedPlantId);
+                        if (selectedDecorationId) stashDecoration(selectedDecorationId);
+                        setSelectedDecorationId(null);
+                        resetEditSelection();
+                      }}
+                    >
+                      収納する
+                    </button>
+                  </section>
                 )}
 
                 {!plantingFlowActive &&
@@ -831,6 +1180,13 @@ export function GardenScreen({
                 />
               </svg>
               <span>庭づくり</span>
+            </button>
+            <button type="button" className={styles.navAction} onClick={onOutings}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.navIcon}>
+                <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                <path d="m15.5 8.5-2 5-5 2 2-5Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round" />
+              </svg>
+              <span>おでかけ</span>
             </button>
             <button type="button" className={styles.navAction} onClick={onObservations}>
               <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.navIcon}>

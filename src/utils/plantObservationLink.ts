@@ -8,6 +8,46 @@ export function getNavigableObservations(observations: PlantObservation[]): Plan
   );
 }
 
+function collectLinkedObservationIds(
+  plants: GardenPlant[],
+  stashedPlants: GardenPlant[],
+): Set<string> {
+  const linked = new Set<string>();
+  for (const plant of [...plants, ...stashedPlants]) {
+    for (const id of plant.observationIds ?? []) {
+      linked.add(id);
+    }
+  }
+  return linked;
+}
+
+/** Tulip observations not yet linked to any garden or stashed plant */
+export function getPlantableTulipObservations(
+  observations: PlantObservation[],
+  plants: GardenPlant[],
+  stashedPlants: GardenPlant[],
+): PlantObservation[] {
+  const linked = collectLinkedObservationIds(plants, stashedPlants);
+  return getNavigableObservations(observations).filter(
+    (o) => o.plantType === 'tulip' && !linked.has(o.id),
+  );
+}
+
+export function canPlantObservationInGarden(
+  observationId: string,
+  observations: PlantObservation[],
+  plants: GardenPlant[],
+  stashedPlants: GardenPlant[],
+  tulipUnlocked: boolean,
+): boolean {
+  if (!tulipUnlocked) return false;
+  const observation = observations.find((o) => o.id === observationId);
+  if (!observation || observation.plantType !== 'tulip') return false;
+  return getPlantableTulipObservations(observations, plants, stashedPlants).some(
+    (o) => o.id === observationId,
+  );
+}
+
 export function getLinkedObservations(
   plant: GardenPlant,
   observations: PlantObservation[],

@@ -27,5 +27,10 @@ vitest.config.ts
 # Local overrides
 *.local
 
+# Native projects and backend source — not used by the web runtime
+ios/
+android/
+supabase/
+
 # Build artifacts are produced on Vercel; skip local copies
 dist/
